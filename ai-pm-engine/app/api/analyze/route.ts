@@ -2,26 +2,91 @@ import { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+// ── Authoritative domain map — fetch directly from source ────────────────────
+const AUTHORITATIVE_DOMAINS: Record<string, string[]> = {
+  // OpenAI
+  "notion":         ["notion.so", "notion.com"],
+  "chatgpt":        ["openai.com"],
+  "openai":         ["openai.com"],
+  "dall-e":         ["openai.com"],
+  "whisper":        ["openai.com"],
+  "sora":           ["openai.com"],
+  // Microsoft
+  "github copilot": ["github.blog", "github.com"],
+  "copilot":        ["github.blog", "github.com", "microsoft.com", "blogs.microsoft.com"],
+  "azure":          ["microsoft.com", "blogs.microsoft.com", "azure.microsoft.com"],
+  "bing":           ["microsoft.com", "blogs.microsoft.com"],
+  // Google
+  "gemini":         ["blog.google", "deepmind.google", "ai.google", "blog.google"],
+  "google lens":    ["blog.google", "ai.google"],
+  "google":         ["blog.google", "ai.google", "deepmind.google"],
+  "bard":           ["blog.google", "ai.google"],
+  "waymo":          ["waymo.com", "blog.waymo.com"],
+  // Apple
+  "apple":          ["apple.com", "developer.apple.com", "machinelearning.apple.com"],
+  "siri":           ["apple.com", "machinelearning.apple.com"],
+  // Samsung
+  "samsung":        ["news.samsung.com", "samsung.com", "research.samsung.com"],
+  // Meta
+  "meta ai":        ["ai.meta.com", "engineering.fb.com", "research.facebook.com"],
+  "llama":          ["ai.meta.com", "engineering.fb.com"],
+  "meta":           ["ai.meta.com", "engineering.fb.com", "research.facebook.com"],
+  "instagram":      ["engineering.fb.com", "ai.meta.com"],
+  "facebook":       ["engineering.fb.com", "ai.meta.com"],
+  "reels":          ["engineering.fb.com", "ai.meta.com"],
+  // Netflix
+  "netflix":        ["netflixtechblog.com", "research.netflix.com"],
+  // Amazon
+  "amazon":         ["aws.amazon.com", "developer.amazon.com", "aboutamazon.com"],
+  "alexa":          ["developer.amazon.com", "aws.amazon.com"],
+  "aws":            ["aws.amazon.com", "aws.amazon.com/blogs"],
+  "rekognition":    ["aws.amazon.com"],
+  "bedrock":        ["aws.amazon.com"],
+  // Anthropic
+  "claude":         ["anthropic.com"],
+  // Grammarly
+  "grammarly":      ["grammarly.com"],
+  // Perplexity
+  "perplexity":     ["perplexity.ai", "blog.perplexity.ai"],
+  // Midjourney / image gen
+  "midjourney":     ["midjourney.com", "docs.midjourney.com"],
+  "stable diffusion": ["stability.ai", "huggingface.co"],
+  // Spotify
+  "spotify":        ["engineering.atspotify.com", "newsroom.spotify.com"],
+  // Uber
+  "uber":           ["eng.uber.com"],
+  // Airbnb
+  "airbnb":         ["medium.com/airbnb-engineering"],
+  // LinkedIn
+  "linkedin":       ["engineering.linkedin.com"],
+  // Twitter/X
+  "twitter":        ["blog.twitter.com", "engineering.twitter.com"],
+  "grok":           ["x.ai"],
+  // Tesla
+  "tesla":          ["tesla.com"],
+  // Nvidia
+  "nvidia":         ["developer.nvidia.com", "blogs.nvidia.com"],
+};
+
+function getAuthoritativeDomains(query: string): string[] {
+  const ql = query.toLowerCase();
+  for (const [key, domains] of Object.entries(AUTHORITATIVE_DOMAINS)) {
+    if (ql.includes(key)) return domains;
+  }
+  return [];
+}
+
 // ── Search providers ──────────────────────────────────────────────────────────
 
 async function searchSerper(query: string, key: string): Promise<{ title: string; url: string; content: string; type: string }[]> {
   if (!key) return [];
   const results: { title: string; url: string; content: string; type: string }[] = [];
-
-  // Run 6 highly targeted queries — like Google AI Overview would
   const queries = [
-    query,                                                          // base query — triggers AI Overview / answer box
-    `${query} model hardware specs`,
-    `${query} pricing cost`,
-    `${query} how it works technical architecture`,
-    `${query} context window latency performance`,
-    `${query} privacy deployment on-device cloud`,
-    `${query} OpenAI GPT Claude powered by which model`,
-    `${query} engineering blog how built infrastructure`,
-    `${query} site:notion.so OR site:openai.com OR site:anthropic.com`,
-    `"${query}" model GPT Claude Gemini powered`,
+    query,
+    `${query} model architecture how it works`,
+    `${query} pricing hardware specs`,
+    `${query} technical infrastructure`,
   ];
-
   await Promise.all(queries.map(async (q) => {
     try {
       const r = await fetch("https://google.serper.dev/search", {
@@ -31,38 +96,21 @@ async function searchSerper(query: string, key: string): Promise<{ title: string
       });
       if (!r.ok) return;
       const d = await r.json();
-
-      // Answer box = highest quality, closest to AI Overview
       if (d.answerBox?.answer)
         results.push({ title: `[ANSWER BOX] ${d.answerBox.title ?? q}`, url: d.answerBox.link ?? "", content: d.answerBox.answer, type: "official" });
-      if (d.answerBox?.snippet)
+      if (d.answerBox?.snippet && d.answerBox.snippet !== d.answerBox.answer)
         results.push({ title: `[SNIPPET] ${d.answerBox.title ?? q}`, url: d.answerBox.link ?? "", content: d.answerBox.snippet, type: "official" });
-      if (d.answerBox?.snippetHighlighted?.length)
-        results.push({ title: `[HIGHLIGHTED] ${q}`, url: d.answerBox.link ?? "", content: d.answerBox.snippetHighlighted.join(" "), type: "official" });
-
-      // Knowledge graph = structured facts
       if (d.knowledgeGraph) {
         const kg = d.knowledgeGraph;
-        const kgText = [
-          kg.description,
-          ...(kg.attributes ? Object.entries(kg.attributes).map(([k, v]) => `${k}: ${v}`) : []),
-        ].filter(Boolean).join("\n");
+        const kgText = [kg.description, ...(kg.attributes ? Object.entries(kg.attributes).map(([k, v]) => `${k}: ${v}`) : [])].filter(Boolean).join("\n");
         if (kgText) results.push({ title: `[KNOWLEDGE GRAPH] ${kg.title ?? q}`, url: kg.descriptionLink ?? "", content: kgText, type: "official" });
       }
-
-      // Organic results
-      for (const x of (d.organic ?? [])) {
-        if (!results.find(e => e.url === x.link)) {
-          const isOfficial = x.link?.includes(query.toLowerCase().split(" ")[0]) || x.link?.includes("official") || x.sitelinks;
-          results.push({ title: x.title ?? "", url: x.link ?? "", content: x.snippet ?? "", type: isOfficial ? "official" : "article" });
-        }
-      }
-
-      // People Also Ask — additional context
-      for (const p of (d.peopleAlsoAsk ?? []).slice(0, 3))
+      for (const p of (d.peopleAlsoAsk ?? []).slice(0, 2))
         if (p.answer) results.push({ title: `[Q&A] ${p.question}`, url: p.link ?? "", content: p.answer, type: "article" });
-
-    } catch { /* ignore */ }
+      for (const x of (d.organic ?? []).slice(0, 5))
+        if (!results.find(e => e.url === x.link))
+          results.push({ title: x.title ?? "", url: x.link ?? "", content: x.snippet ?? "", type: "article" });
+    } catch { /**/ }
   }));
   return results;
 }
@@ -70,26 +118,37 @@ async function searchSerper(query: string, key: string): Promise<{ title: string
 async function searchTavily(query: string, key: string): Promise<{ title: string; url: string; content: string; type: string }[]> {
   if (!key) return [];
   const results: { title: string; url: string; content: string; type: string }[] = [];
-  await Promise.all([
-    `${query} official documentation technical specs`,
-    `${query} hardware infrastructure engineering deep dive`,
-    `${query} pricing model context window`,
-    `${query} system design architecture how it works`,
-  ].map(async (q) => {
+  const authDomains = getAuthoritativeDomains(query);
+
+  const searches: Array<{ q: string; domains?: string[] }> = [
+    // 1. Deep search on authoritative domains if we know them
+    ...(authDomains.length > 0 ? [{ q: `${query} model architecture pricing hardware`, domains: authDomains }] : []),
+    // 2. General deep search
+    { q: `${query} technical architecture model infrastructure how it works` },
+    { q: `${query} hardware GPU NPU chip pricing context window latency` },
+  ];
+
+  await Promise.all(searches.map(async ({ q, domains }) => {
     try {
       const r = await fetch("https://api.tavily.com/search", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          api_key: key, query: q, search_depth: "advanced", max_results: 4,
-          include_domains: [], exclude_domains: ["reddit.com", "quora.com", "pinterest.com", "medium.com"],
+          api_key: key, query: q, search_depth: "advanced", max_results: 5,
+          ...(domains ? { include_domains: domains } : {}),
+          exclude_domains: ["reddit.com", "quora.com", "pinterest.com", "tiktok.com"],
         }),
       });
       if (!r.ok) return;
       const d = await r.json();
       for (const x of (d.results ?? []))
         if (!results.find(e => e.url === x.url))
-          results.push({ title: x.title ?? "", url: x.url ?? "", content: (x.content ?? "").slice(0, 2000), type: x.url?.includes("official") ? "official" : "article" });
-    } catch { /* ignore */ }
+          results.push({
+            title: x.title ?? "",
+            url: x.url ?? "",
+            content: (x.content ?? "").slice(0, 3000), // longer content = more facts
+            type: authDomains.some(d => x.url?.includes(d)) ? "official" : "article"
+          });
+    } catch { /**/ }
   }));
   return results;
 }
@@ -97,88 +156,96 @@ async function searchTavily(query: string, key: string): Promise<{ title: string
 async function searchExa(query: string, key: string): Promise<{ title: string; url: string; content: string; type: string }[]> {
   if (!key) return [];
   const results: { title: string; url: string; content: string; type: string }[] = [];
-  await Promise.all([
-    `${query} technical specifications`,
-    `${query} official pricing documentation`,
-  ].map(async (q) => {
-    try {
-      const r = await fetch("https://api.exa.ai/search", {
-        method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key },
-        body: JSON.stringify({ query: q, numResults: 4, useAutoprompt: true, contents: { text: { maxCharacters: 1500 } } }),
-      });
-      if (!r.ok) return;
+  try {
+    const r = await fetch("https://api.exa.ai/search", {
+      method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key },
+      body: JSON.stringify({
+        query: `${query} technical specifications model hardware pricing`,
+        numResults: 6, useAutoprompt: true,
+        contents: { text: { maxCharacters: 2000 } }
+      }),
+    });
+    if (r.ok) {
       const d = await r.json();
       for (const x of (d.results ?? []))
-        if (!results.find(e => e.url === x.url))
-          results.push({ title: x.title ?? "", url: x.url ?? "", content: x.text ?? "", type: "article" });
-    } catch { /* ignore */ }
-  }));
+        results.push({ title: x.title ?? "", url: x.url ?? "", content: x.text ?? "", type: "article" });
+    }
+  } catch { /**/ }
   return results;
 }
 
-// ── Call 1: extract facts (gpt-4o-mini, fast) ────────────────────────────────
-const EXTRACT_SYSTEM = `You are a precise data extraction assistant. Read the search results and extract ONLY explicitly stated facts.
-Return ONLY a JSON object. Use null for anything not found — never guess or infer.
+// ── Call 1: extract confirmed facts only ─────────────────────────────────────
+const EXTRACT_SYSTEM = `You are a precise fact extractor. Read these search results and pull out ONLY what is explicitly stated.
+Do not infer. Do not guess. Return null for anything not directly stated.
+Return ONLY this JSON:
 {
-  "modelName": "exact name if stated",
-  "modelType": "architecture type if stated",
-  "provider": "company name if stated",
-  "contextWindow": "size if stated",
-  "hardware": "chip/GPU/NPU if stated",
+  "modelName": "exact model name if stated",
+  "provider": "AI provider if stated",
+  "contextWindow": "context size if stated",
+  "hardware": "specific chip/GPU/NPU if stated",
   "frameworks": "ML framework if stated",
   "latency": "latency numbers if stated",
-  "cost": "pricing if stated",
+  "cost": "exact pricing if stated",
   "privacy": "privacy policy if stated",
   "deployment": "cloud/on-device/hybrid if stated",
-  "finetuned": "fine-tuning details if stated",
-  "adoptionSignal": "usage stats if stated",
-  "qualityMetric": "accuracy/benchmark if stated",
-  "keyFacts": ["every important fact found — quote directly from sources"]
+  "adoptionSignal": "user count or growth metric if stated",
+  "qualityMetric": "accuracy or benchmark if stated",
+  "keyFacts": ["important facts quoted directly from sources — up to 12 quotes"]
 }`;
 
-// ── Call 2: synthesize (gpt-4o) ───────────────────────────────────────────────
-const SYNTHESIZE_SYSTEM = `You are a senior AI systems analyst and PM expert with deep knowledge of the AI industry. Produce a complete, accurate, expert-level breakdown of any AI product feature.
+// ── Call 2: synthesize ────────────────────────────────────────────────────────
+const SYNTHESIZE_SYSTEM = `You are a world-class AI product analyst. Founders and PMs will read your analysis. It must be accurate, specific, and deeply expert.
 
-YOU HAVE TWO SOURCES OF KNOWLEDGE — USE BOTH:
-1. Live search results provided below (mark these "confirmed")
-2. Your own training knowledge about AI products, companies, and infrastructure (mark these "inferred")
+══ CONFIDENCE SYSTEM ══
+"confirmed" → fact is in the provided search sources
+"inferred"  → you know this from your training knowledge about this specific product — state it confidently with specifics
+"unknown"   → you have absolutely no basis from search OR training knowledge — use extremely rarely
 
-CONFIDENCE LABELS:
-- "confirmed" = explicitly found in the search sources provided
-- "inferred" = you know this from your training knowledge about this product/company — use this freely and confidently
-- "unknown" = you have absolutely no basis from either sources OR training knowledge — should be very rare
+YOU KNOW THESE — USE THEM (mark "inferred"):
+• Notion AI → GPT-4o + Claude 3.5, cloud-only, NVIDIA H100 on Azure/AWS via APIs, PyTorch, entire-doc context
+• ChatGPT Voice → GPT-4o native multimodal, NVIDIA H100 on Azure, PyTorch, WebSocket streaming, <320ms latency
+• GitHub Copilot → OpenAI Codex/GPT-4, fine-tuned on GitHub code, Azure, 64K context, 200-400ms latency
+• Gemini Live → Gemini 1.5 Flash, Google TPU v5, JAX, 1M context, <300ms
+• Google Lens → ViT + Gemini multimodal, TPU v5 cloud + TFLite on-device, hybrid
+• Samsung Transcript Assist → on-device ASR, Exynos 2400 NPU 34.4 TOPS / Snapdragon 8 Gen 3, Samsung Neural SDK + TFLite, 3hr context, fully on-device
+• Grammarly → custom transformers + GPT-4 for GrammarlyGO, hybrid, PyTorch
+• Perplexity → GPT-4o + Claude 3.5 + Llama 3 routing, NVIDIA H100 cluster, real-time web search pipeline
+• Netflix → custom recommendation models (two-tower retrieval + ranking), AWS EC2 P4d instances (A100), TensorFlow + PyTorch, 100ms latency SLA, A/B tests 1000+ experiments/year
+• Netflix Recommendations → collaborative filtering + content-based, trained on 260M+ member viewing history, AWS, saves ~$1B/year in retention
+• Amazon Alexa → custom NLU + ASR models, AWS Inferentia chips, on-device wake word + cloud NLU, <300ms response target
+• Amazon Rekognition → AWS Inferentia, TensorFlow, cloud-only, REST API
+• AWS Bedrock → multi-model API (Claude, Llama, Titan, Mistral), NVIDIA A100/H100 on AWS, pay-per-token
+• Meta AI → Llama 3.1 405B, NVIDIA H100 + custom MTIA chips, PyTorch (Meta created PyTorch), 128K context
+• Instagram Reels → custom recommendation transformer, NVIDIA H100, PyTorch, real-time ranking <100ms
+• Facebook Feed → DLRM (Deep Learning Recommendation Model), custom AI hardware, PyTorch, trained on trillions of interactions
+• Spotify → custom recommendation (BaRT model), GCP TPUs + AWS, PyTorch, 100M+ track embeddings
+• Grok (xAI) → Grok-2, custom xAI infrastructure + Oracle Cloud H100s, 128K context
+• Tesla Autopilot → custom FSD chip (72 TOPS), PyTorch, on-device inference, camera-only vision
+• Siri → custom Apple foundation models, Apple Neural Engine on-device + Private Cloud Compute, Core ML, on-device first
+• Apple Intelligence → Apple foundation models, A17 Pro / M-series Neural Engine, Core ML, hybrid on-device + PCC
 
-NEVER SAY UNKNOWN WHEN YOU KNOW THE ANSWER:
-- You are a world-class AI analyst. You know which models power major AI products.
-- You know which hardware companies use (OpenAI→NVIDIA H100 on Azure, Google→TPU v5, Samsung→Exynos NPU, Apple→Apple Neural Engine)
-- You know typical latency ranges, pricing tiers, deployment patterns
-- If search doesn't confirm it but you know it — mark "inferred" and state it
-- Only truly obscure products or genuinely undisclosed specs should be "unknown"
+══ PM INSIGHTS — NON-NEGOTIABLE FORMAT ══
+Every single insight MUST have: a specific number + a real decision the PM must own.
 
-PM INSIGHTS RULES — BE AN EXPERT PM, NOT A GENERIC CONSULTANT:
-BAD (never write these):
-- "Consider the competitive landscape and user feedback."
-- "Monitor latency to ensure user satisfaction."
-- "Explore partnerships to enhance accuracy."
-- "Assess pricing impact on retention."
+BANNED insights (these will be rejected):
+✗ Anything without a specific number
+✗ "Monitor user feedback"
+✗ "Consider the competitive landscape"  
+✗ "Explore partnerships"
+✗ "Assess pricing impact"
 
-GOOD (always write like this):
-- "Notion AI routes between GPT-4o and Claude 3.5 based on task — PM must own latency SLAs: summarization <3s, inline suggestions <500ms. Model regression past this triggers rollback."
-- "Jobright's ATS scoring feature is the key retention hook — if match accuracy drops below ~70% users churn within 7 days. The PM must define a precision floor and gate every model update behind an offline eval before shipping."
-- "The free tier is a top-of-funnel mechanism — PM must track free-to-paid conversion rate (industry benchmark: 3-8% for B2C AI tools). If it drops below 3%, the paywall is placed too early in the value delivery sequence."
+REQUIRED format — every insight looks like one of these:
+✓ "[Feature] routes between [Model A] and [Model B] — PM must define latency SLA: <Xms for [task]. Regression triggers rollback."
+✓ "Free-to-paid benchmark for [category] is X–Y%. If conversion drops below X%, [specific action]."
+✓ "[Feature] runs on [hardware] at [spec]. PM must set [metric] budget: [threshold] per [dimension]. Exceeding blocks [action]."
+✓ "Competitor [X] does [approach] differently — this reveals [specific trade-off] the PM must consciously choose."
 
-Rules:
-1. Always include at least one specific number or threshold
-2. Always describe a decision the PM must own, not just observe
-3. If technical specs are unknown, write about product/business trade-offs with specific numbers
-4. Reference this specific product's confirmed facts — never write generic AI product advice
+══ INFRA DIAGRAM ══
+Name every component after actual product features:
+✓ "Notion AI Multi-Model Router", "Exynos 2400 NPU ASR Engine", "Orion Chat Engine"  
+✗ "AI Model", "Backend Server", "Data Preprocessor", "Analytics Engine"
 
-INFRA DIAGRAM:
-- Use the actual product name in component names (e.g. "Jobright Resume Parser", "Orion AI Chat Engine")
-- Never use "AI Model", "Backend Server", "Data Preprocessor" as standalone names
-- If stack is unknown, name components after the product's known features
-
-Return ONLY raw JSON starting with { ending with }. No markdown. No backticks.
+Return ONLY raw JSON. No markdown. No backticks. No text outside the JSON object.
 
 JSON structure:
 {
@@ -187,8 +254,8 @@ JSON structure:
   "category": "Summarization|Conversational AI|Code Generation|Image Generation|Search|Writing Assistant|Voice|Vision|Recommendation|Other",
   "emoji": "single emoji",
   "tagline": "max 12 words",
-  "userProblem": "2-3 sentences, concrete before/after",
-  "summary": "3-4 sentences, technical how it works",
+  "userProblem": "2-3 sentences, concrete before/after, specific friction removed",
+  "summary": "3-4 sentences, technical how it works, what makes it different",
   "overallConfidence": "high|medium|low",
   "model": {
     "name": { "value": "string", "confidence": "confirmed|inferred|unknown" },
@@ -214,7 +281,7 @@ JSON structure:
   },
   "optimizations": ["string"],
   "tradeoffs": [
-    { "label": "string", "description": "2-3 sentences: real tension, what was gained, what was lost, why", "dimension": "quality-latency|privacy-accuracy|cost-scale|ondevice-cloud|general" },
+    { "label": "string", "description": "2-3 sentences: real tension, what was gained, what was lost, why this decision", "dimension": "quality-latency|privacy-accuracy|cost-scale|ondevice-cloud|general" },
     { "label": "string", "description": "string", "dimension": "string" },
     { "label": "string", "description": "string", "dimension": "string" }
   ],
@@ -227,8 +294,8 @@ JSON structure:
   },
   "pmInsights": ["string", "string", "string", "string", "string"],
   "infraDiagram": [
-    { "layer": "Input Layer", "description": "How user input enters the system", "components": [
-      { "name": "string", "detail": "string", "children": [{ "name": "string", "detail": "string" }] }
+    { "layer": "Input Layer", "description": "How user input enters", "components": [
+      { "name": "product-specific component name", "detail": "specific detail", "children": [{ "name": "string", "detail": "string" }] }
     ]},
     { "layer": "Processing Layer", "description": "Pre-processing and routing", "components": [{ "name": "string", "detail": "string" }]},
     { "layer": "Model Layer", "description": "Core AI inference", "components": [{ "name": "string", "detail": "string" }]},
@@ -246,7 +313,7 @@ export async function POST(req: NextRequest) {
   const exaKey    = process.env.EXA_API_KEY ?? "";
 
   if (!tavilyKey || !openaiKey)
-    return new Response(JSON.stringify({ error: "TAVILY_API_KEY and OPENAI_API_KEY are required." }), { status: 500 });
+    return new Response(JSON.stringify({ error: "Missing required API keys." }), { status: 500 });
 
   const { query } = await req.json();
   if (!query?.trim()) return new Response(JSON.stringify({ error: "Query required" }), { status: 400 });
@@ -256,10 +323,9 @@ export async function POST(req: NextRequest) {
     async start(ctrl) {
       const send = (event: string, data: unknown) =>
         ctrl.enqueue(encoder.encode(`data: ${JSON.stringify({ event, data })}\n\n`));
-
       try {
         // ── Step 1: All providers in parallel ────────────────────────────────
-        const activeProviders = ["Serper (Google)", tavilyKey ? "Tavily" : null, exaKey ? "Exa" : null].filter(Boolean).join(" + ");
+        const activeProviders = ["Serper", tavilyKey ? "Tavily" : null, exaKey ? "Exa" : null].filter(Boolean).join(" + ");
         send("status", { step: 1, message: `Searching via ${activeProviders}…` });
 
         const [serperResults, tavilyResults, exaResults] = await Promise.all([
@@ -268,7 +334,6 @@ export async function POST(req: NextRequest) {
           searchExa(query.trim(), exaKey),
         ]);
 
-        // Serper first (highest trust), then Exa, then Tavily
         const seen = new Set<string>();
         const allSources: { title: string; url: string; content: string; type: string; provider: string }[] = [];
         for (const [results, provider] of [
@@ -285,12 +350,21 @@ export async function POST(req: NextRequest) {
         if (!allSources.length) { send("error", { message: "No sources found. Check API keys." }); ctrl.close(); return; }
 
         const countByProvider = allSources.reduce((acc, s) => { acc[s.provider] = (acc[s.provider] ?? 0) + 1; return acc; }, {} as Record<string, number>);
-        const providerSummary = Object.entries(countByProvider).map(([p, n]) => `${p}:${n}`).join(", ");
-        send("status", { step: 2, message: `Found ${allSources.length} sources (${providerSummary}). Extracting facts…` });
+        send("status", { step: 2, message: `Found ${allSources.length} sources (${Object.entries(countByProvider).map(([p,n])=>`${p}:${n}`).join(", ")}). Extracting facts…` });
 
-        // ── Step 2: Extract facts (fast, cheap) ──────────────────────────────
-        const sourcesForExtract = allSources.slice(0, 24)
-          .map((s, i) => `[${i + 1}] ${s.title}\nURL: ${s.url}\n${s.content}`)
+        // ── Step 2: Extract confirmed facts ──────────────────────────────────
+        const prioritySources = allSources.filter(s =>
+          s.title.startsWith("[ANSWER BOX]") || s.title.startsWith("[SNIPPET]") ||
+          s.title.startsWith("[KNOWLEDGE GRAPH]") || s.title.startsWith("[Q&A]") ||
+          s.type === "official"
+        );
+        const otherSources = allSources.filter(s => !prioritySources.includes(s))
+          .sort((a, b) => b.content.length - a.content.length)
+          .slice(0, 10);
+        const topSources = [...prioritySources, ...otherSources].slice(0, 20);
+
+        const sourcesText = topSources
+          .map((s, i) => `[${i+1}] ${s.title}\nURL: ${s.url}\n${s.content.slice(0, 2000)}`)
           .join("\n\n---\n\n");
 
         const extractRes = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -301,7 +375,7 @@ export async function POST(req: NextRequest) {
             response_format: { type: "json_object" },
             messages: [
               { role: "system", content: EXTRACT_SYSTEM },
-              { role: "user", content: `Product: "${query.trim()}"\n\nSources:\n${sourcesForExtract}` }
+              { role: "user", content: `Product: "${query.trim()}"\n\nSources:\n${sourcesText}` }
             ]
           }),
         });
@@ -309,34 +383,32 @@ export async function POST(req: NextRequest) {
         let extracted: Record<string, unknown> = {};
         if (extractRes.ok) {
           const d = await extractRes.json();
-          try { extracted = JSON.parse(d.choices?.[0]?.message?.content ?? "{}"); } catch { /* ignore */ }
+          try { extracted = JSON.parse(d.choices?.[0]?.message?.content ?? "{}"); } catch { /**/ }
         }
 
-        // ── Step 3: Synthesize full analysis ─────────────────────────────────
-        send("status", { step: 3, message: "Synthesizing analysis…" });
-
-        // Prioritize answer boxes and knowledge graph at the top
-        const prioritySources = allSources.filter(s => s.title.startsWith("[ANSWER BOX]") || s.title.startsWith("[SNIPPET]") || s.title.startsWith("[KNOWLEDGE GRAPH]"));
-        const regularSources = allSources.filter(s => !prioritySources.includes(s));
-        const orderedSources = [...prioritySources, ...regularSources];
+        // ── Step 3: Full synthesis ────────────────────────────────────────────
+        send("status", { step: 3, message: "Synthesizing expert analysis…" });
 
         const synthesizeMsg = `Analyze: "${query.trim()}"
 
-STEP 1 — CONFIRMED FACTS extracted from live search:
+CONFIRMED FACTS FROM LIVE SEARCH:
 ${JSON.stringify(extracted, null, 2)}
 
-STEP 2 — ALL SEARCH SOURCES (${orderedSources.length} results, answer boxes first):
-${orderedSources.slice(0, 28).map((s, i) => `[${i + 1}] ${s.title}\n${s.content.slice(0, 500)}`).join("\n\n---\n\n")}
+TOP SOURCES (official and high-content first):
+${topSources.slice(0, 14).map((s, i) => `[${i+1}] ${s.title} [${s.type}]\n${s.content.slice(0, 800)}`).join("\n\n---\n\n")}
 
-STEP 3 — For every field not covered above, use your training knowledge about "${query.trim()}" and mark "inferred". You are an expert — state what you know confidently.
-
-Produce the complete JSON. Return ONLY the JSON.`;
+Instructions:
+1. Use confirmed facts above — mark "confirmed"
+2. Fill gaps using your training knowledge about this product — mark "inferred"  
+3. Every pmInsight needs a specific number and a real PM decision
+4. Name infra components after actual product features
+5. Return ONLY the JSON`;
 
         const synthRes = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
           body: JSON.stringify({
-            model: "gpt-4o", temperature: 0.1, max_tokens: 4000, stream: false,
+            model: "gpt-4o", temperature: 0.1, max_tokens: 4096, stream: false,
             response_format: { type: "json_object" },
             messages: [{ role: "system", content: SYNTHESIZE_SYSTEM }, { role: "user", content: synthesizeMsg }]
           }),
@@ -347,21 +419,20 @@ Produce the complete JSON. Return ONLY the JSON.`;
         send("status", { step: 4, message: "Building dashboard…" });
         const synthData = await synthRes.json();
         const raw = synthData.choices?.[0]?.message?.content ?? "";
-        if (!raw) { send("error", { message: "Empty response. Try again." }); ctrl.close(); return; }
+        if (!raw) { send("error", { message: "Empty response." }); ctrl.close(); return; }
 
         let result;
         try { result = JSON.parse(raw); }
         catch {
           const f = raw.indexOf("{"), l = raw.lastIndexOf("}");
-          if (f === -1 || l === -1) { send("error", { message: "Parse error. Try again." }); ctrl.close(); return; }
+          if (f === -1 || l === -1) { send("error", { message: "Parse error." }); ctrl.close(); return; }
           try { result = JSON.parse(raw.slice(f, l + 1)); }
-          catch { send("error", { message: "Parse error. Try again." }); ctrl.close(); return; }
+          catch { send("error", { message: "Parse error." }); ctrl.close(); return; }
         }
 
         result.id = query.trim().toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, "-");
         result.generatedAt = new Date().toISOString();
 
-        // Attach all sources
         const seenUrls = new Set(Array.from((result.sources ?? []).map((s: { url: string }) => s.url)));
         for (const s of allSources)
           if (s.url && !seenUrls.has(s.url)) {
