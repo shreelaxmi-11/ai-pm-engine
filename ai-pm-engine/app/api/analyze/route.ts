@@ -64,16 +64,15 @@ async function getGoogleUrls(query: string, key: string): Promise<{
   return { answerBoxes, knowledgeGraph, urls: Array.from(urlSet), organicSnippets };
 }
 
-// ── Step 2: Fetch full content of URLs via Tavily ────────────────────────────
+// ── Step 2: Extract full page content from exact URLs via Tavily Extract ────
 async function fetchFullContent(
   urls: string[],
   query: string,
   key: string
 ): Promise<{ title: string; url: string; content: string }[]> {
-  if (!key) return [];
+  if (!key || !urls.length) return [];
   const results: { title: string; url: string; content: string }[] = [];
 
-  // Prioritize authoritative domains
   const PRIORITY_DOMAINS = [
     "openai.com", "anthropic.com", "ai.google", "blog.google", "deepmind.google",
     "microsoft.com", "github.blog", "notion.so", "notion.com",
@@ -84,54 +83,55 @@ async function fetchFullContent(
     "aws.amazon.com", "developer.amazon.com",
     "engineering.atspotify.com", "newsroom.spotify.com",
     "eng.uber.com", "engineering.linkedin.com",
-    "x.ai", "tesla.com", "nvidia.com", "developer.nvidia.com",
+    "x.ai", "tesla.com", "developer.nvidia.com",
     "grammarly.com", "perplexity.ai", "blog.perplexity.ai",
   ];
 
   const priorityUrls = urls.filter(u => PRIORITY_DOMAINS.some(d => u.includes(d)));
   const otherUrls = urls.filter(u => !priorityUrls.includes(u));
-  const orderedUrls = [...priorityUrls, ...otherUrls].slice(0, 8);
+  const toExtract = [...priorityUrls.slice(0, 6), ...otherUrls.slice(0, 3)];
 
-  await Promise.all(orderedUrls.map(async (url) => {
+  // Tavily /extract — returns full clean text of each exact URL
+  try {
+    const r = await fetch("https://api.tavily.com/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: key, urls: toExtract }),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      for (const x of (d.results ?? [])) {
+        if (x.url && x.raw_content) {
+          results.push({
+            title: x.url,
+            url: x.url,
+            content: (x.raw_content as string).slice(0, 4000),
+          });
+        }
+      }
+    }
+  } catch { /**/ }
+
+  // Fallback: broad Tavily search if extract didn't get enough
+  if (results.length < 3) {
     try {
       const r = await fetch("https://api.tavily.com/search", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           api_key: key,
-          query: `${query} model architecture hardware pricing`,
-          search_depth: "advanced",
-          max_results: 1,
-          include_domains: [new URL(url).hostname],
-        }),
-      });
-      if (!r.ok) return;
-      const d = await r.json();
-      for (const x of (d.results ?? []))
-        if (!results.find(e => e.url === x.url))
-          results.push({ title: x.title ?? "", url: x.url ?? "", content: (x.content ?? "").slice(0, 3000) });
-    } catch { /**/ }
-  }));
-
-  // Also do 2 broad deep searches for anything missed
-  await Promise.all([
-    `${query} technical architecture model infrastructure`,
-    `${query} hardware GPU NPU pricing context window`,
-  ].map(async (q) => {
-    try {
-      const r = await fetch("https://api.tavily.com/search", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          api_key: key, query: q, search_depth: "advanced", max_results: 4,
+          query: `${query} model architecture hardware pricing technical`,
+          search_depth: "advanced", max_results: 5,
           exclude_domains: ["reddit.com", "quora.com", "pinterest.com", "tiktok.com"],
         }),
       });
-      if (!r.ok) return;
-      const d = await r.json();
-      for (const x of (d.results ?? []))
-        if (!results.find(e => e.url === x.url))
-          results.push({ title: x.title ?? "", url: x.url ?? "", content: (x.content ?? "").slice(0, 3000) });
+      if (r.ok) {
+        const d = await r.json();
+        for (const x of (d.results ?? []))
+          if (!results.find(e => e.url === x.url))
+            results.push({ title: x.title ?? "", url: x.url ?? "", content: (x.content ?? "").slice(0, 4000) });
+      }
     } catch { /**/ }
-  }));
+  }
 
   return results;
 }
@@ -183,29 +183,16 @@ const SYNTHESIZE_SYSTEM = `You are a world-class AI product analyst. Founders an
 "inferred"  → you know this from training knowledge — state it confidently and specifically
 "unknown"   → zero basis anywhere — extremely rare, only for truly undisclosed obscure product specs
 
-══ PRODUCT KNOWLEDGE (use as "inferred" when search doesn't confirm) ══
-OpenAI: NVIDIA H100 SXM5 on Azure, PyTorch + TensorRT, GPT-4o 128K context
-ChatGPT Voice: GPT-4o Realtime API, WebSocket, <320ms latency, Plus $20/mo
-GitHub Copilot: GPT-4 Codex fine-tuned on GitHub, Azure, 64K context, $10/mo individual
-Gemini / Gemini Live: TPU v5p, JAX, 1M context, <300ms
-Google Lens: ViT + Gemini, TPU v5 cloud + TFLite on-device, hybrid
-Samsung Galaxy AI / Transcript Assist: CRITICAL FACTS — Transcript Assist is FULLY ON-DEVICE. Audio NEVER leaves the device. NO network connection required for transcription. NO Samsung account required for transcription. Hardware: Exynos 2400 NPU (34.4 TOPS, 6-core) on international models, Snapdragon 8 Gen 3 NPU on US models. Framework: Samsung Neural SDK + TensorFlow Lite. Cost: FREE, bundled with Galaxy S24 series and newer. Context: up to 3 hours of audio per session. Languages: 13+ supported. Latency: real-time display, <100ms lag. The "requires network" message in some Samsung docs refers to OTHER Galaxy AI features like Circle to Search — NOT Transcript Assist.
-Apple Intelligence / Siri: Apple Neural Engine, Core ML, on-device + Private Cloud Compute
-Notion AI: GPT-4o + Claude 3.5 routing, NVIDIA H100 via APIs, cloud-only, $10/mo
-Grammarly: custom transformers + GPT-4, hybrid, PyTorch
-Perplexity: GPT-4o + Claude 3.5 + Llama 3 routing, H100 cluster, real-time web search
-Meta AI / Llama: Llama 4 Scout (17Bx16E, 10M ctx) + Llama 4 Maverick (17Bx128E, 1M ctx), MoE architecture, NVIDIA H100 training + B200 inference, PyTorch, 600M MAU, free via ads
-Instagram Reels: custom recommendation transformer, H100, PyTorch, <100ms ranking
-Facebook Feed: DLRM model, custom AI hardware, PyTorch, trillion-scale training
-Netflix: two-tower retrieval + ranking neural nets, AWS P4d (A100), TensorFlow + PyTorch, 100ms SLA, 260M+ member history
-Amazon Alexa: custom NLU/ASR, AWS Inferentia, on-device wake word + cloud NLU, <300ms
-AWS Bedrock: multi-model API (Claude, Llama, Titan), NVIDIA A100/H100, pay-per-token
-Spotify: BaRT recommendation model, GCP TPUs + AWS, PyTorch, 100M+ track embeddings
-Grok (xAI): Grok-2, Oracle Cloud H100s, 128K context
-Tesla Autopilot: custom FSD chip 72 TOPS, PyTorch, camera-only, fully on-device
-Uber: real-time ML platform Michelangelo, GCP + AWS, PyTorch, <100ms trip ETA
+══ USING YOUR TRAINING KNOWLEDGE ══
+You are GPT-4o — you were trained on the entire internet up to April 2024. You know these products deeply.
+When search confirms a fact, mark it "confirmed". When you know it from training, mark it "inferred".
+Never mark something "unknown" if you genuinely know it — that would be dishonest.
 
-For ANY product not listed: use search results + your knowledge of that company's known tech patterns.
+Use your training knowledge to fill every field with real, specific values:
+- Real model names (e.g. "Llama 4 Maverick", not "large language model")
+- Real hardware (e.g. "NVIDIA H100 SXM5", not "high-end GPU")  
+- Real numbers (e.g. "128K tokens", not "large context window")
+- Real costs (e.g. "$10/month individual", not "subscription-based")
 
 ══ PM INSIGHTS — MANDATORY FORMAT ══
 Each insight MUST have: specific number + real decision the PM owns.
@@ -290,13 +277,15 @@ JSON:
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  const tavilyKey = process.env.TAVILY_API_KEY ?? "";
-  const openaiKey = process.env.OPENAI_API_KEY ?? "";
-  const serperKey = process.env.SERPER_API_KEY ?? "";
-  const exaKey    = process.env.EXA_API_KEY ?? "";
+  const tavilyKey    = process.env.TAVILY_API_KEY ?? "";
+  const anthropicKey = process.env.ANTHROPIC_API_KEY ?? "";
+  const openaiKey    = process.env.OPENAI_API_KEY ?? "";
+  const serperKey    = process.env.SERPER_API_KEY ?? "";
+  const exaKey       = process.env.EXA_API_KEY ?? "";
+  const useClaude    = !!anthropicKey;
 
-  if (!tavilyKey || !openaiKey)
-    return new Response(JSON.stringify({ error: "Missing TAVILY_API_KEY or OPENAI_API_KEY." }), { status: 500 });
+  if (!tavilyKey || (!anthropicKey && !openaiKey))
+    return new Response(JSON.stringify({ error: "Missing TAVILY_API_KEY and ANTHROPIC_API_KEY (or OPENAI_API_KEY)." }), { status: 500 });
 
   const { query } = await req.json();
   if (!query?.trim()) return new Response(JSON.stringify({ error: "Query required" }), { status: 400 });
@@ -349,27 +338,59 @@ export async function POST(req: NextRequest) {
 
         const kgSection = google.knowledgeGraph ? `\nKNOWLEDGE GRAPH:\n${google.knowledgeGraph}\n` : "";
 
-        const extractRes = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
-          body: JSON.stringify({
-            model: "gpt-4o-mini", temperature: 0, max_tokens: 1500, stream: false,
-            response_format: { type: "json_object" },
-            messages: [
-              { role: "system", content: EXTRACT_SYSTEM },
-              { role: "user", content: `Product: "${query.trim()}"${kgSection}\n\nSources:\n${sourcesText}` }
-            ]
-          }),
-        });
+        // ── Helper: call Claude or OpenAI ────────────────────────────────────
+        const callLLM = async (system: string, user: string, fast: boolean): Promise<string> => {
+          if (useClaude) {
+            const r = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-api-key": anthropicKey,
+                "anthropic-version": "2023-06-01",
+              },
+              body: JSON.stringify({
+                model: fast ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-5-20251001",
+                max_tokens: fast ? 1500 : 4096,
+                system,
+                messages: [{ role: "user", content: user }],
+              }),
+            });
+            if (!r.ok) throw new Error(`Anthropic error (${r.status}): ${await r.text()}`);
+            const d = await r.json();
+            return d.content?.[0]?.text ?? "";
+          } else {
+            const r = await fetch("https://api.openai.com/v1/chat/completions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+              body: JSON.stringify({
+                model: fast ? "gpt-4o-mini" : "gpt-4o",
+                temperature: fast ? 0 : 0.1,
+                max_tokens: fast ? 1500 : 4096,
+                stream: false,
+                response_format: { type: "json_object" },
+                messages: [{ role: "system", content: system }, { role: "user", content: user }],
+              }),
+            });
+            if (!r.ok) throw new Error(`OpenAI error (${r.status})`);
+            const d = await r.json();
+            return d.choices?.[0]?.message?.content ?? "";
+          }
+        };
 
+        const extractRaw = await callLLM(
+          EXTRACT_SYSTEM,
+          `Product: "${query.trim()}"${kgSection}\n\nSources:\n${sourcesText}`,
+          true
+        );
         let extracted: Record<string, unknown> = {};
-        if (extractRes.ok) {
-          const d = await extractRes.json();
-          try { extracted = JSON.parse(d.choices?.[0]?.message?.content ?? "{}"); } catch { /**/ }
-        }
+        try {
+          const clean = extractRaw.replace(/```json|```/g, "").trim();
+          const f = clean.indexOf("{"), l = clean.lastIndexOf("}");
+          extracted = JSON.parse(f >= 0 ? clean.slice(f, l + 1) : clean);
+        } catch { /**/ }
 
         // ── Phase 4: Synthesize full analysis ────────────────────────────────
-        send("status", { step: 4, message: "Synthesizing expert analysis…" });
+        send("status", { step: 4, message: `Synthesizing with ${useClaude ? "Claude Sonnet" : "GPT-4o"}…` });
 
         const synthesizeMsg = `Analyze THIS SPECIFIC FEATURE: "${query.trim()}"
 
@@ -381,35 +402,26 @@ TOP SOURCES (full content):
 ${allSources.slice(0, 16).map((s, i) => `[${i+1}] ${s.title}\n${s.content.slice(0, 1000)}`).join("\n\n---\n\n")}
 
 CRITICAL RULES:
-1. Only apply facts that are specifically about "${query.trim()}" — not other features of the same product
+1. Only apply facts specifically about "${query.trim()}" — not other features of the same product
 2. Use your training knowledge to fill gaps — mark "inferred" with real specific numbers
 3. "unknown" only when you have absolutely zero basis — should be rare
-4. Every pmInsight MUST contain a specific number and describe a real PM decision to own
+4. Every pmInsight MUST contain a specific number and a real PM decision to own
 5. Name every infra component after actual product features (e.g. "Exynos 2400 NPU ASR Engine" not "AI Model")
-Return ONLY the JSON.`;
+Return ONLY valid JSON. No markdown. No backticks.`;
 
-        const synthRes = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
-          body: JSON.stringify({
-            model: "gpt-4o", temperature: 0.1, max_tokens: 4096, stream: false,
-            response_format: { type: "json_object" },
-            messages: [{ role: "system", content: SYNTHESIZE_SYSTEM }, { role: "user", content: synthesizeMsg }]
-          }),
-        });
-
-        if (!synthRes.ok) { send("error", { message: `OpenAI error (${synthRes.status})` }); ctrl.close(); return; }
-
-        const synthData = await synthRes.json();
-        const raw = synthData.choices?.[0]?.message?.content ?? "";
-        if (!raw) { send("error", { message: "Empty response." }); ctrl.close(); return; }
+        const synthRaw = await callLLM(SYNTHESIZE_SYSTEM, synthesizeMsg, false);
+        if (!synthRaw) { send("error", { message: "Empty response." }); ctrl.close(); return; }
 
         let result;
-        try { result = JSON.parse(raw); }
+        try {
+          const clean = synthRaw.replace(/```json|```/g, "").trim();
+          const f = clean.indexOf("{"), l = clean.lastIndexOf("}");
+          result = JSON.parse(f >= 0 ? clean.slice(f, l + 1) : clean);
+        }
         catch {
-          const f = raw.indexOf("{"), l = raw.lastIndexOf("}");
+          const f = synthRaw.indexOf("{"), l = synthRaw.lastIndexOf("}");
           if (f === -1 || l === -1) { send("error", { message: "Parse error." }); ctrl.close(); return; }
-          try { result = JSON.parse(raw.slice(f, l + 1)); }
+          try { result = JSON.parse(synthRaw.slice(f, l + 1)); }
           catch { send("error", { message: "Parse error." }); ctrl.close(); return; }
         }
 
