@@ -326,13 +326,13 @@ function sanitizeDeep(val: unknown): unknown {
 export async function POST(req: NextRequest) {
   const tavilyKey    = process.env.TAVILY_API_KEY ?? "";
   const anthropicKey = process.env.ANTHROPIC_API_KEY ?? "";
-  const openaiKey    = process.env.OPENAI_API_KEY ?? "";
   const serperKey    = process.env.SERPER_API_KEY ?? "";
   const exaKey       = process.env.EXA_API_KEY ?? "";
-  const useClaude    = !!anthropicKey;
 
-  if (!tavilyKey || (!anthropicKey && !openaiKey))
-    return new Response(JSON.stringify({ error: "Missing TAVILY_API_KEY and ANTHROPIC_API_KEY (or OPENAI_API_KEY)." }), { status: 500 });
+  if (!anthropicKey)
+    return new Response(JSON.stringify({ error: "Missing ANTHROPIC_API_KEY." }), { status: 500 });
+  if (!tavilyKey)
+    return new Response(JSON.stringify({ error: "Missing TAVILY_API_KEY." }), { status: 500 });
 
   const { query } = await req.json();
   if (!query?.trim()) return new Response(JSON.stringify({ error: "Query required" }), { status: 400 });
@@ -385,53 +385,34 @@ export async function POST(req: NextRequest) {
         // ── Phase 3: Build context for Sonnet ────────────────────────────────────
         const kgSection = google.knowledgeGraph ? `\nKNOWLEDGE GRAPH:\n${sanitize(google.knowledgeGraph)}\n` : "";
 
-        // ── Helper: call Claude or OpenAI ────────────────────────────────────
+        // ── Helper: call Claude ───────────────────────────────────────────────
         const callLLM = async (systemRaw: string, userRaw: string, fast: boolean): Promise<string> => {
-          // Sanitize ALL strings before they touch JSON.stringify
           const system = sanitizeStr(systemRaw);
           const user = sanitizeStr(userRaw);
-          if (useClaude) {
-            const r = await fetch("https://api.anthropic.com/v1/messages", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-api-key": anthropicKey,
-                "anthropic-version": "2023-06-01",
-              },
-              body: JSON.stringify({
-                model: fast ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-5-20250929",
-                max_tokens: fast ? 1000 : 3000,
-                system,
-                messages: [{ role: "user", content: user }],
-              }),
-            });
-            if (!r.ok) throw new Error(`Anthropic error (${r.status}): ${await r.text()}`);
-            const d = await r.json();
-            return d.content?.[0]?.text ?? "";
-          } else {
-            const r = await fetch("https://api.openai.com/v1/chat/completions", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
-              body: JSON.stringify({
-                model: fast ? "gpt-4o-mini" : "gpt-4o",
-                temperature: fast ? 0 : 0.1,
-                max_tokens: fast ? 1000 : 3000,
-                stream: false,
-                response_format: { type: "json_object" },
-                messages: [{ role: "system", content: system }, { role: "user", content: user }],
-              }),
-            });
-            if (!r.ok) throw new Error(`OpenAI error (${r.status})`);
-            const d = await r.json();
-            return d.choices?.[0]?.message?.content ?? "";
-          }
+          const r = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": anthropicKey,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: fast ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-5-20250929",
+              max_tokens: fast ? 1000 : 3000,
+              system,
+              messages: [{ role: "user", content: user }],
+            }),
+          });
+          if (!r.ok) throw new Error(`Anthropic error (${r.status}): ${await r.text()}`);
+          const d = await r.json();
+          return d.content?.[0]?.text ?? "";
         };
 
         // Phase 3 skipped — Sonnet reads sources directly (faster, same quality)
         const extracted: Record<string, unknown> = {};
 
         // ── Phase 4: Synthesize full analysis ────────────────────────────────
-        send("status", { step: 4, message: `Synthesizing with ${useClaude ? "Claude Sonnet" : "GPT-4o"}…` });
+        send("status", { step: 4, message: "Synthesizing with Claude Sonnet…" });
 
         const synthesizeMsg = `Analyze THIS SPECIFIC FEATURE: "${safeQuery}"
 
