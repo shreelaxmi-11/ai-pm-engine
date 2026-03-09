@@ -3,17 +3,21 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 export async function GET(_req: NextRequest) {
-  const serperKey = process.env.SERPER_API_KEY ?? "";
-  const exaKey    = process.env.EXA_API_KEY ?? "";
-  const tavilyKey = process.env.TAVILY_API_KEY ?? "";
-  const openaiKey = process.env.OPENAI_API_KEY ?? "";
+  const serperKey    = process.env.SERPER_API_KEY ?? "";
+  const exaKey       = process.env.EXA_API_KEY ?? "";
+  const tavilyKey    = process.env.TAVILY_API_KEY ?? "";
+  const openaiKey    = process.env.OPENAI_API_KEY ?? "";
+  const anthropicKey = process.env.ANTHROPIC_API_KEY ?? "";
 
   const results: Record<string, unknown> = {
+    version: "2025-03-09-v4",  // bump this to confirm new code is deployed
+    activeModel: anthropicKey ? "Claude Sonnet (claude-sonnet-4-5-20250929)" : "GPT-4o (fallback)",
     keys: {
-      TAVILY_API_KEY: tavilyKey ? `set (${tavilyKey.slice(0,8)}...)` : "MISSING",
-      OPENAI_API_KEY: openaiKey ? `set (${openaiKey.slice(0,8)}...)` : "MISSING",
-      SERPER_API_KEY: serperKey ? `set (${serperKey.slice(0,8)}...)` : "MISSING",
-      EXA_API_KEY:    exaKey    ? `set (${exaKey.slice(0,8)}...)`    : "MISSING",
+      ANTHROPIC_API_KEY: anthropicKey ? `set (${anthropicKey.slice(0,8)}...)` : "MISSING ← this is why GPT-4o is being used",
+      TAVILY_API_KEY:    tavilyKey    ? `set (${tavilyKey.slice(0,8)}...)`    : "MISSING",
+      OPENAI_API_KEY:    openaiKey    ? `set (${openaiKey.slice(0,8)}...)`    : "MISSING",
+      SERPER_API_KEY:    serperKey    ? `set (${serperKey.slice(0,8)}...)`    : "MISSING",
+      EXA_API_KEY:       exaKey       ? `set (${exaKey.slice(0,8)}...)`       : "MISSING",
     }
   };
 
