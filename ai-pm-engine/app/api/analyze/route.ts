@@ -400,7 +400,7 @@ export async function POST(req: NextRequest) {
               },
               body: JSON.stringify({
                 model: fast ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-5-20250929",
-                max_tokens: fast ? 1500 : 4096,
+                max_tokens: fast ? 1000 : 3000,
                 system,
                 messages: [{ role: "user", content: user }],
               }),
@@ -415,7 +415,7 @@ export async function POST(req: NextRequest) {
               body: JSON.stringify({
                 model: fast ? "gpt-4o-mini" : "gpt-4o",
                 temperature: fast ? 0 : 0.1,
-                max_tokens: fast ? 1500 : 4096,
+                max_tokens: fast ? 1000 : 3000,
                 stream: false,
                 response_format: { type: "json_object" },
                 messages: [{ role: "system", content: system }, { role: "user", content: user }],
@@ -440,7 +440,7 @@ ${sanitizeJson(extracted)}
 
 ${google.knowledgeGraph ? `GOOGLE KNOWLEDGE GRAPH:\n${sanitize(google.knowledgeGraph)}\n` : ""}
 TOP SOURCES (full content):
-${allSources.slice(0, 8).map((s, i) => `[${i+1}] ${sanitize(s.title)}\nURL: ${s.url}\n${sanitize(s.content).slice(0, 2000)}`).join("\n\n---\n\n")}
+${allSources.slice(0, 5).map((s, i) => `[${i+1}] ${sanitize(s.title)}\nURL: ${s.url}\n${sanitize(s.content).slice(0, 1200)}`).join("\n\n---\n\n")}
 
 CRITICAL RULES:
 1. Only apply facts specifically about "${safeQuery}" — not other features of the same product
@@ -450,7 +450,10 @@ CRITICAL RULES:
 5. Name every infra component after actual product features (e.g. "Exynos 2400 NPU ASR Engine" not "AI Model")
 Return ONLY valid JSON. No markdown. No backticks.`;
 
-        const synthRaw = await callLLM(SYNTHESIZE_SYSTEM, synthesizeMsg, false);
+        const synthRaw = await Promise.race([
+          callLLM(SYNTHESIZE_SYSTEM, synthesizeMsg, false),
+          new Promise<string>((_, rej) => setTimeout(() => rej(new Error("Synthesis timeout after 45s")), 45000)),
+        ]) as string;
         if (!synthRaw) { send("error", { message: "Empty response." }); ctrl.close(); return; }
 
         let result;
