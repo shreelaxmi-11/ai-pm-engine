@@ -241,7 +241,7 @@ export async function POST(req: NextRequest) {
           ctrl.close(); return;
         }
 
-        const providersUsed = [...new Set(allSources.map(s => s.provider))].join(", ");
+        const providersUsed = Array.from(new Set(allSources.map(s => s.provider))).join(", ");
         send("status", { step: 2, message: `Found ${allSources.length} sources via ${providersUsed}. Analyzing…` });
 
         // Inject known facts as Source [0]
