@@ -105,7 +105,7 @@ async function fetchFullContent(
           results.push({
             title: x.url,
             url: x.url,
-            content: (x.raw_content as string).slice(0, 4000),
+            content: (x.raw_content as string).slice(0, 8000),
           });
         }
       }
@@ -145,7 +145,7 @@ async function searchExa(query: string, key: string): Promise<{ title: string; u
       body: JSON.stringify({
         query: `${query} technical specifications model hardware pricing architecture`,
         numResults: 6, useAutoprompt: true,
-        contents: { text: { maxCharacters: 2500 } }
+        contents: { text: { maxCharacters: 5000 } }
       }),
     });
     if (!r.ok) return [];
@@ -176,56 +176,61 @@ Return ONLY this JSON:
 }`;
 
 // ── Synthesize: full expert analysis ─────────────────────────────────────────
-const SYNTHESIZE_SYSTEM = `You are a world-class AI product analyst. Founders and senior PMs will read this. Be accurate, specific, and deeply expert.
+const SYNTHESIZE_SYSTEM = `You are a world-class AI product analyst. Founders and senior PMs will read this. Be accurate, specific, and expert.
 
-══ CONFIDENCE ══
-"confirmed" → in provided sources
-"inferred"  → you know this from training knowledge — state it confidently and specifically
-"unknown"   → zero basis anywhere — extremely rare, only for truly undisclosed obscure product specs
+══ YOUR JOB ══
+You have been given full text from real web pages about this product — engineering blogs, official docs, press releases, technical reports.
+READ THEM CAREFULLY. Your job is to extract every fact from these pages and build a complete, accurate analysis.
 
-══ USING YOUR TRAINING KNOWLEDGE ══
-You are GPT-4o — you were trained on the entire internet up to April 2024. You know these products deeply.
-When search confirms a fact, mark it "confirmed". When you know it from training, mark it "inferred".
-Never mark something "unknown" if you genuinely know it — that would be dishonest.
+══ CONFIDENCE RULES ══
+"confirmed" → explicitly stated in the provided source text
+"inferred"  → strongly implied by the source text, or cross-referenced across multiple sources
+"unknown"   → genuinely not mentioned anywhere in sources AND you have no reliable basis
 
-Use your training knowledge to fill every field with real, specific values:
-- Real model names (e.g. "Llama 4 Maverick", not "large language model")
-- Real hardware (e.g. "NVIDIA H100 SXM5", not "high-end GPU")  
-- Real numbers (e.g. "128K tokens", not "large context window")
-- Real costs (e.g. "$10/month individual", not "subscription-based")
+IMPORTANT: You are Claude, trained on data up to early 2026. You have deep knowledge of the AI industry.
+If the sources confirm a fact, mark it "confirmed".
+If the sources don't mention something but you know it from your training (e.g. a well-known product's hardware), mark it "inferred" — do NOT mark it "unknown".
+Reserve "unknown" only for truly obscure or undisclosed information with zero basis.
+
+══ HOW TO READ THE SOURCES ══
+- Official engineering blogs (netflixtechblog.com, engineering.fb.com, openai.com, anthropic.com, github.blog, ai.google) are highest trust — treat as ground truth
+- Official product pages and docs are high trust
+- News articles and reviews are medium trust — corroborate with other sources if possible
+- Extract exact model names, hardware names, latency numbers, pricing, context windows from the text
+- If a source says "we use H100s" that is "confirmed" hardware
+- If a source says "powered by GPT-4" that is "confirmed" model name
 
 ══ PM INSIGHTS — MANDATORY FORMAT ══
-Each insight MUST have: specific number + real decision the PM owns.
+Each insight MUST: reference a SPECIFIC fact from the sources + give a specific number + describe a decision the PM must own.
 
-BANNED (never write):
+BANNED — these will be rejected:
 ✗ "Monitor user feedback to improve quality"
 ✗ "Consider the competitive landscape"
-✗ "Explore partnerships to enhance accuracy"
-✗ "Assess pricing impact on retention"
-✗ Any vague statement without a specific number
+✗ "Explore partnerships"
+✗ "Ensure compliance with regulations"
+✗ Any insight without a specific number from the actual product
 
-REQUIRED (every insight looks like this):
-✓ "Notion AI routes between GPT-4o and Claude 3.5 by task type. PM must define latency SLA: summarization <3s, inline suggestions <500ms. Regression triggers automatic model rollback before next release."
-✓ "Netflix recommendation CTR drops ~30% when latency exceeds 100ms. The PM must maintain a p99 serving latency budget and gate any model update that regresses past this on offline eval before A/B test."
-✓ "Samsung Transcript Assist runs entirely on Exynos 2400 NPU (34.4 TOPS). PM must define WER budget per language: English <5%, Korean <8%. Any OTA that regresses past this must be blocked."
-✓ "Free-to-paid conversion for B2C AI tools benchmarks at 3–8%. If conversion drops below 3%, the paywall hits before value delivery — move it past the first successful output."
+REQUIRED — every insight references something real:
+✓ "Notion uses prompt caching with Claude — confirmed 85% latency reduction and 90% cost savings per call. PM must set cache hit rate target >70%. Any prompt redesign that drops below this threshold reverts — the feature economics break below it."
+✓ "Netflix recommendation CTR drops ~30% when p99 latency exceeds 100ms (confirmed from Netflix Tech Blog). PM must gate every model update behind offline eval that proves <100ms p99 before any A/B test."
+✓ "Samsung Transcript Assist runs fully on-device on Exynos 2400 NPU (34.4 TOPS, confirmed). PM must define WER budget per language: English <5%, Korean <8%. Any OTA regression past this is blocked."
+✓ "GitHub Copilot acceptance rate benchmarks at 30-35% (confirmed from GitHub blog). PM must track acceptance rate per language — if Python drops below 30%, the fine-tuning pipeline needs retraining on recent Python corpus."
 
 ══ INFRA DIAGRAM ══
-Use REAL product component names. Never generic names.
-✓ "Notion AI Multi-Model Router", "Exynos 2400 NPU ASR Engine", "Netflix Two-Tower Retrieval Model"
-✗ "AI Model", "Backend Server", "Data Preprocessor", "Analytics Engine"
+Every component name must reference the actual product:
+✓ "Notion Prompt Cache Layer (Claude 3.7)", "Netflix Two-Tower Retrieval Model", "Exynos 2400 NPU ASR Engine"
+✗ "AI Model", "Backend Server", "Data Preprocessor", "Inference Engine"
 
-Return ONLY raw JSON. No markdown. No backticks.
+Return ONLY raw JSON. No markdown. No backticks. No text outside JSON.
 
-JSON:
 {
   "featureName": "string",
   "company": "string",
   "category": "Summarization|Conversational AI|Code Generation|Image Generation|Search|Writing Assistant|Voice|Vision|Recommendation|Other",
   "emoji": "single emoji",
-  "tagline": "max 12 words",
-  "userProblem": "2-3 sentences, concrete before/after, specific friction removed",
-  "summary": "3-4 sentences, technical how it works, what makes it different",
+  "tagline": "max 12 words — specific to this product",
+  "userProblem": "2-3 sentences: concrete before/after, specific friction removed",
+  "summary": "3-4 sentences: technical how it works, what makes it architecturally different, cite specific facts from sources",
   "overallConfidence": "high|medium|low",
   "model": {
     "name": { "value": "string", "confidence": "confirmed|inferred|unknown" },
@@ -249,14 +254,14 @@ JSON:
     "orchestration": { "value": "string", "confidence": "confirmed|inferred|unknown" },
     "deployment": { "value": "string", "confidence": "confirmed|inferred|unknown" }
   },
-  "optimizations": ["string"],
+  "optimizations": ["string — each must be a specific technique from the sources"],
   "tradeoffs": [
-    { "label": "string", "description": "2-3 sentences: real tension, what was gained, what was lost, why", "dimension": "quality-latency|privacy-accuracy|cost-scale|ondevice-cloud|general" },
+    { "label": "string", "description": "2-3 sentences: real tension confirmed by sources, what was gained, what was lost, why this decision was made", "dimension": "quality-latency|privacy-accuracy|cost-scale|ondevice-cloud|general" },
     { "label": "string", "description": "string", "dimension": "string" },
     { "label": "string", "description": "string", "dimension": "string" }
   ],
   "productImpact": {
-    "adoptionSignal": "string",
+    "adoptionSignal": "string — specific number if found in sources",
     "retentionImpact": "string",
     "churnImpact": "string",
     "userSegment": "string",
@@ -265,7 +270,7 @@ JSON:
   "pmInsights": ["string", "string", "string", "string", "string"],
   "infraDiagram": [
     { "layer": "Input Layer", "description": "How user input enters", "components": [
-      { "name": "string", "detail": "string", "children": [{ "name": "string", "detail": "string" }] }
+      { "name": "product-specific name", "detail": "specific technical detail from sources", "children": [{ "name": "string", "detail": "string" }] }
     ]},
     { "layer": "Processing Layer", "description": "Pre-processing and routing", "components": [{ "name": "string", "detail": "string" }]},
     { "layer": "Model Layer", "description": "Core AI inference", "components": [{ "name": "string", "detail": "string" }]},
@@ -333,7 +338,7 @@ export async function POST(req: NextRequest) {
         // ── Phase 3: Extract confirmed facts ──────────────────────────────────
         const topForExtract = allSources.slice(0, 20);
         const sourcesText = topForExtract
-          .map((s, i) => `[${i+1}] ${s.title}\nURL: ${s.url}\n${s.content.slice(0, 2000)}`)
+          .map((s, i) => `[${i+1}] ${s.title}\nURL: ${s.url}\n${s.content.slice(0, 3000)}`)
           .join("\n\n---\n\n");
 
         const kgSection = google.knowledgeGraph ? `\nKNOWLEDGE GRAPH:\n${google.knowledgeGraph}\n` : "";
@@ -399,7 +404,7 @@ ${JSON.stringify(extracted, null, 2)}
 
 ${google.knowledgeGraph ? `GOOGLE KNOWLEDGE GRAPH:\n${google.knowledgeGraph}\n` : ""}
 TOP SOURCES (full content):
-${allSources.slice(0, 16).map((s, i) => `[${i+1}] ${s.title}\n${s.content.slice(0, 1000)}`).join("\n\n---\n\n")}
+${allSources.slice(0, 10).map((s, i) => `[${i+1}] ${s.title}\nURL: ${s.url}\n${s.content.slice(0, 4000)}`).join("\n\n---\n\n")}
 
 CRITICAL RULES:
 1. Only apply facts specifically about "${query.trim()}" — not other features of the same product
