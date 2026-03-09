@@ -146,6 +146,7 @@ async function searchTavily(query: string, key: string): Promise<{ title: string
 }
 
 async function searchSerper(query: string, key: string): Promise<{ title: string; url: string; content: string }[]> {
+  if (!key) return [];
   const results: { title: string; url: string; content: string }[] = [];
   const queries = [
     `${query} context window specs hardware`,
@@ -173,6 +174,7 @@ async function searchSerper(query: string, key: string): Promise<{ title: string
 }
 
 async function searchExa(query: string, key: string): Promise<{ title: string; url: string; content: string }[]> {
+  if (!key) return [];
   const results: { title: string; url: string; content: string }[] = [];
   try {
     const r = await fetch("https://api.exa.ai/search", {
@@ -214,11 +216,11 @@ export async function POST(req: NextRequest) {
         const activeProviders = ["Tavily", serperKey ? "Serper" : null, exaKey ? "Exa" : null].filter(Boolean).join(", ");
         send("status", { step: 1, message: `Searching via: ${activeProviders}…` });
 
-        // All search providers fire simultaneously
+        // All search providers fire simultaneously — always call all, each handles empty key gracefully
         const [tavilyResults, serperResults, exaResults] = await Promise.all([
           searchTavily(query.trim(), tavilyKey),
-          serperKey ? searchSerper(query.trim(), serperKey) : Promise.resolve([]),
-          exaKey    ? searchExa(query.trim(), exaKey)       : Promise.resolve([]),
+          searchSerper(query.trim(), serperKey ?? ""),
+          searchExa(query.trim(), exaKey ?? ""),
         ]);
 
         // Deduplicate across all providers
