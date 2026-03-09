@@ -211,7 +211,8 @@ export async function POST(req: NextRequest) {
       const send = (event: string, data: unknown) =>
         ctrl.enqueue(encoder.encode(`data: ${JSON.stringify({ event, data })}\n\n`));
       try {
-        send("status", { step: 1, message: "Searching across all sources in parallel…" });
+        const activeProviders = ["Tavily", serperKey ? "Serper" : null, exaKey ? "Exa" : null].filter(Boolean).join(", ");
+        send("status", { step: 1, message: `Searching via: ${activeProviders}…` });
 
         // All search providers fire simultaneously
         const [tavilyResults, serperResults, exaResults] = await Promise.all([
