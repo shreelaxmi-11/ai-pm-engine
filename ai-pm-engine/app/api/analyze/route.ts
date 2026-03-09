@@ -16,6 +16,10 @@ async function searchSerper(query: string, key: string): Promise<{ title: string
     `${query} how it works technical architecture`,
     `${query} context window latency performance`,
     `${query} privacy deployment on-device cloud`,
+    `${query} OpenAI GPT Claude powered by which model`,
+    `${query} engineering blog how built infrastructure`,
+    `${query} site:notion.so OR site:openai.com OR site:anthropic.com`,
+    `"${query}" model GPT Claude Gemini powered`,
   ];
 
   await Promise.all(queries.map(async (q) => {
@@ -133,25 +137,35 @@ Return ONLY a JSON object. Use null for anything not found — never guess or in
 }`;
 
 // ── Call 2: synthesize (gpt-4o) ───────────────────────────────────────────────
-const SYNTHESIZE_SYSTEM = `You are a senior AI systems analyst and PM expert. Your job is to produce an accurate, expert-level breakdown of an AI product feature.
+const SYNTHESIZE_SYSTEM = `You are a senior AI systems analyst and PM expert with deep knowledge of the AI industry. Produce a complete, accurate, expert-level breakdown of any AI product feature.
 
-SOURCE PRIORITY (treat like Google AI Overview):
-1. [ANSWER BOX] and [SNIPPET] sources = highest trust, directly from Google's featured answers
-2. [KNOWLEDGE GRAPH] = structured facts directly from Google
-3. [Q&A] = supporting context
-4. Official documentation and Tavily deep results = detailed technical content
-5. Articles = supplementary, lower trust
+YOU HAVE TWO SOURCES OF KNOWLEDGE — USE BOTH:
+1. Live search results provided below (mark these "confirmed")
+2. Your own training knowledge about AI products, companies, and infrastructure (mark these "inferred")
 
-CONFIDENCE RULES:
-- "confirmed" = explicitly stated in a source above
-- "inferred" = logically deducible from confirmed facts (e.g. company X always uses framework Y, confirmed deployment implies certain hardware class)
-- "unknown" = genuinely not stated and cannot be reasonably deduced — use sparingly, only when truly nothing is available
+CONFIDENCE LABELS:
+- "confirmed" = explicitly found in the search sources provided
+- "inferred" = you know this from your training knowledge about this product/company — use this freely and confidently
+- "unknown" = you have absolutely no basis from either sources OR training knowledge — should be very rare
 
-QUALITY RULES:
-- pmInsights must be expert-level with specific numbers and real PM decisions grounded in confirmed facts. Never generic.
-- infraDiagram: every layer must have at least one real, named component from the product
-- tradeoffs: describe real engineering tensions with specific context from this feature
-- Return ONLY raw JSON. No markdown, no backticks, no explanation.
+NEVER SAY UNKNOWN WHEN YOU KNOW THE ANSWER:
+- You are a world-class AI analyst. You know which models power major AI products.
+- You know which hardware companies use (OpenAI→NVIDIA H100 on Azure, Google→TPU v5, Samsung→Exynos NPU, Apple→Apple Neural Engine)
+- You know typical latency ranges, pricing tiers, deployment patterns
+- If search doesn't confirm it but you know it — mark "inferred" and state it
+- Only truly obscure products or genuinely undisclosed specs should be "unknown"
+
+PM INSIGHTS RULES — BE AN EXPERT, NOT A CONSULTANT:
+BAD (never write this): "Consider the competitive landscape and user feedback."
+BAD (never write this): "Monitor latency to ensure user satisfaction."
+GOOD: "Notion AI routes between GPT-4o and Claude 3.5 based on task — the PM must own latency SLAs: summarization <3s, inline suggestions <500ms. Any model update regressing past these triggers rollback."
+GOOD: "Samsung Transcript Assist runs entirely on Exynos 2400 NPU (34.4 TOPS) — audio never leaves the device. PM must define WER budget per language: English <5%, Korean <8%, blocking any OTA that regresses."
+
+Every pmInsight must: reference a specific technical fact, include a real number, describe a real decision or trade-off the PM must own.
+
+INFRA DIAGRAM: Use real component names from this specific product. Never use generic names like "AI Model" or "Backend Server".
+
+Return ONLY raw JSON starting with { ending with }. No markdown. No backticks.`;
 
 JSON structure:
 {
@@ -295,13 +309,15 @@ export async function POST(req: NextRequest) {
 
         const synthesizeMsg = `Analyze: "${query.trim()}"
 
-EXTRACTED FACTS (from Google search results — treat as confirmed):
+STEP 1 — CONFIRMED FACTS extracted from live search:
 ${JSON.stringify(extracted, null, 2)}
 
-SOURCES IN PRIORITY ORDER (${orderedSources.length} total):
-${orderedSources.slice(0, 28).map((s, i) => `[${i + 1}] ${s.title} [${s.provider}]\n${s.content.slice(0, 500)}`).join("\n\n---\n\n")}
+STEP 2 — ALL SEARCH SOURCES (${orderedSources.length} results, answer boxes first):
+${orderedSources.slice(0, 28).map((s, i) => `[${i + 1}] ${s.title}\n${s.content.slice(0, 500)}`).join("\n\n---\n\n")}
 
-Produce the complete JSON analysis. Answer boxes and knowledge graph data are highest confidence. Use all sources. Return ONLY the JSON.`;
+STEP 3 — For every field not covered above, use your training knowledge about "${query.trim()}" and mark "inferred". You are an expert — state what you know confidently.
+
+Produce the complete JSON. Return ONLY the JSON.`;
 
         const synthRes = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
