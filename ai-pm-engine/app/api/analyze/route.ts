@@ -2,6 +2,17 @@ import { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+// Fetch with timeout
+async function fetchWithTimeout(url: string, opts: RequestInit, ms = 8000): Promise<Response> {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 // ── Step 1: Get top URLs from Google via Serper ───────────────────────────────
 async function getGoogleUrls(query: string, key: string): Promise<{
   answerBoxes: { title: string; url: string; content: string }[];
@@ -18,16 +29,15 @@ async function getGoogleUrls(query: string, key: string): Promise<{
 
   const queries = [
     query,
-    `${query} model architecture how it works`,
-    `${query} pricing hardware specs technical`,
-  ];
+    `${query} model architecture hardware specs technical`,
+  ]; // 2 queries for speed
 
   await Promise.all(queries.map(async (q) => {
     try {
-      const r = await fetch("https://google.serper.dev/search", {
+      const r = await fetchWithTimeout("https://google.serper.dev/search", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-KEY": key },
-        body: JSON.stringify({ q, num: 8, gl: "us", hl: "en" }),
+        body: JSON.stringify({ q, num: 6, gl: "us", hl: "en" }),  // num: 6 for speed
       });
       if (!r.ok) return;
       const d = await r.json();
@@ -89,11 +99,11 @@ async function fetchFullContent(
 
   const priorityUrls = urls.filter(u => PRIORITY_DOMAINS.some(d => u.includes(d)));
   const otherUrls = urls.filter(u => !priorityUrls.includes(u));
-  const toExtract = [...priorityUrls.slice(0, 6), ...otherUrls.slice(0, 3)];
+  const toExtract = [...priorityUrls.slice(0, 3), ...otherUrls.slice(0, 2)]; // max 5 URLs for speed
 
   // Tavily /extract — returns full clean text of each exact URL
   try {
-    const r = await fetch("https://api.tavily.com/extract", {
+    const r = await fetchWithTimeout("https://api.tavily.com/extract", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ api_key: key, urls: toExtract }),
@@ -105,7 +115,7 @@ async function fetchFullContent(
           results.push({
             title: x.url,
             url: x.url,
-            content: (x.raw_content as string).slice(0, 8000),
+            content: (x.raw_content as string).slice(0, 3000),
           });
         }
       }
@@ -145,7 +155,7 @@ async function searchExa(query: string, key: string): Promise<{ title: string; u
       body: JSON.stringify({
         query: `${query} technical specifications model hardware pricing architecture`,
         numResults: 6, useAutoprompt: true,
-        contents: { text: { maxCharacters: 5000 } }
+        contents: { text: { maxCharacters: 2000 } }
       }),
     });
     if (!r.ok) return [];
@@ -366,18 +376,13 @@ export async function POST(req: NextRequest) {
         // Organic snippets as fallback
         for (const s of google.organicSnippets) addSource(s.title, s.url, s.snippet, "article");
 
-        send("status", { step: 3, message: `Analyzing ${allSources.length} sources…` });
+        send("status", { step: 3, message: `Synthesizing ${allSources.length} sources with Claude Sonnet…` });
 
         // Aliases to module-level sanitizers
         const sanitize = sanitizeStr;
         const sanitizeJson = (obj: unknown): string => sanitizeStr(JSON.stringify(obj, null, 2));
 
-        // ── Phase 3: Extract confirmed facts ──────────────────────────────────
-        const topForExtract = allSources.slice(0, 20);
-        const sourcesText = topForExtract
-          .map((s, i) => `[${i+1}] ${sanitize(s.title)}\nURL: ${s.url}\n${sanitize(s.content).slice(0, 3000)}`)
-          .join("\n\n---\n\n");
-
+        // ── Phase 3: Build context for Sonnet ────────────────────────────────────
         const kgSection = google.knowledgeGraph ? `\nKNOWLEDGE GRAPH:\n${sanitize(google.knowledgeGraph)}\n` : "";
 
         // ── Helper: call Claude or OpenAI ────────────────────────────────────
@@ -422,17 +427,8 @@ export async function POST(req: NextRequest) {
           }
         };
 
-        const extractRaw = await callLLM(
-          EXTRACT_SYSTEM,
-          `Product: "${safeQuery}"${kgSection}\n\nSources:\n${sourcesText}`,
-          true
-        );
-        let extracted: Record<string, unknown> = {};
-        try {
-          const clean = extractRaw.replace(/```json|```/g, "").trim();
-          const f = clean.indexOf("{"), l = clean.lastIndexOf("}");
-          extracted = JSON.parse(f >= 0 ? clean.slice(f, l + 1) : clean);
-        } catch { /**/ }
+        // Phase 3 skipped — Sonnet reads sources directly (faster, same quality)
+        const extracted: Record<string, unknown> = {};
 
         // ── Phase 4: Synthesize full analysis ────────────────────────────────
         send("status", { step: 4, message: `Synthesizing with ${useClaude ? "Claude Sonnet" : "GPT-4o"}…` });
@@ -444,7 +440,7 @@ ${sanitizeJson(extracted)}
 
 ${google.knowledgeGraph ? `GOOGLE KNOWLEDGE GRAPH:\n${sanitize(google.knowledgeGraph)}\n` : ""}
 TOP SOURCES (full content):
-${allSources.slice(0, 10).map((s, i) => `[${i+1}] ${sanitize(s.title)}\nURL: ${s.url}\n${sanitize(s.content).slice(0, 4000)}`).join("\n\n---\n\n")}
+${allSources.slice(0, 8).map((s, i) => `[${i+1}] ${sanitize(s.title)}\nURL: ${s.url}\n${sanitize(s.content).slice(0, 2000)}`).join("\n\n---\n\n")}
 
 CRITICAL RULES:
 1. Only apply facts specifically about "${safeQuery}" — not other features of the same product
