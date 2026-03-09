@@ -280,6 +280,38 @@ Return ONLY raw JSON. No markdown. No backticks. No text outside JSON.
   "sources": [{ "title": "string", "url": "string", "type": "official|article|analysis" }]
 }`;
 
+// ── Module-level sanitize — available everywhere including SSE send ──────────
+function sanitizeStr(s: string): string {
+  if (!s) return "";
+  let result = "";
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code >= 0xD800 && code <= 0xDBFF) {
+      const next = s.charCodeAt(i + 1);
+      if (next >= 0xDC00 && next <= 0xDFFF) { result += s[i] + s[i + 1]; i++; }
+    } else if (code >= 0xDC00 && code <= 0xDFFF) {
+      // lone low surrogate — skip
+    } else if (code === 0 || (code >= 0x0001 && code <= 0x0008) ||
+               code === 0x000B || code === 0x000C ||
+               (code >= 0x000E && code <= 0x001F)) {
+      // control chars — skip
+    } else {
+      result += s[i];
+    }
+  }
+  return result.trim();
+}
+function sanitizeDeep(val: unknown): unknown {
+  if (typeof val === "string") return sanitizeStr(val);
+  if (Array.isArray(val)) return val.map(sanitizeDeep);
+  if (val && typeof val === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(val as Record<string, unknown>)) out[k] = sanitizeDeep(v);
+    return out;
+  }
+  return val;
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const tavilyKey    = process.env.TAVILY_API_KEY ?? "";
@@ -300,7 +332,7 @@ export async function POST(req: NextRequest) {
   const stream = new ReadableStream({
     async start(ctrl) {
       const send = (event: string, data: unknown) =>
-        ctrl.enqueue(encoder.encode(`data: ${JSON.stringify({ event, data })}\n\n`));
+        ctrl.enqueue(encoder.encode(`data: ${JSON.stringify({ event, data: sanitizeDeep(data) })}\n\n`));
       try {
         // ── Phase 1: Google → get URLs + answer boxes ─────────────────────────
         send("status", { step: 1, message: "Searching Google for sources…" });
@@ -336,36 +368,9 @@ export async function POST(req: NextRequest) {
 
         send("status", { step: 3, message: `Analyzing ${allSources.length} sources…` });
 
-        // Sanitize: strip every character that can break JSON serialization
-        const sanitize = (s: string): string => {
-          if (!s) return "";
-          let result = "";
-          for (let i = 0; i < s.length; i++) {
-            const code = s.charCodeAt(i);
-            // Skip lone surrogates (the exact cause of "no low surrogate" errors)
-            if (code >= 0xD800 && code <= 0xDBFF) {
-              // High surrogate — check if followed by low surrogate
-              const next = s.charCodeAt(i + 1);
-              if (next >= 0xDC00 && next <= 0xDFFF) {
-                result += s[i] + s[i + 1]; // valid surrogate pair
-                i++;
-              }
-              // else: lone high surrogate — skip it
-            } else if (code >= 0xDC00 && code <= 0xDFFF) {
-              // Lone low surrogate — skip
-            } else if (code === 0 || (code >= 0x0001 && code <= 0x0008) ||
-                       code === 0x000B || code === 0x000C ||
-                       (code >= 0x000E && code <= 0x001F)) {
-              // Control chars — skip
-            } else {
-              result += s[i];
-            }
-          }
-          return result.trim();
-        };
-        // Sanitize a JSON-stringified object
-        const sanitizeJson = (obj: unknown): string =>
-          sanitize(JSON.stringify(obj, null, 2));
+        // Aliases to module-level sanitizers
+        const sanitize = sanitizeStr;
+        const sanitizeJson = (obj: unknown): string => sanitizeStr(JSON.stringify(obj, null, 2));
 
         // ── Phase 3: Extract confirmed facts ──────────────────────────────────
         const topForExtract = allSources.slice(0, 20);
@@ -376,7 +381,10 @@ export async function POST(req: NextRequest) {
         const kgSection = google.knowledgeGraph ? `\nKNOWLEDGE GRAPH:\n${sanitize(google.knowledgeGraph)}\n` : "";
 
         // ── Helper: call Claude or OpenAI ────────────────────────────────────
-        const callLLM = async (system: string, user: string, fast: boolean): Promise<string> => {
+        const callLLM = async (systemRaw: string, userRaw: string, fast: boolean): Promise<string> => {
+          // Sanitize ALL strings before they touch JSON.stringify
+          const system = sanitizeStr(systemRaw);
+          const user = sanitizeStr(userRaw);
           if (useClaude) {
             const r = await fetch("https://api.anthropic.com/v1/messages", {
               method: "POST",
