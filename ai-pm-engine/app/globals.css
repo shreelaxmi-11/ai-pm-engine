@@ -1,0 +1,29 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;font-size:17px}
+body{background:#07070D;color:#EDEDF5;font-family:'DM Sans',sans-serif;-webkit-font-smoothing:antialiased;font-size:1rem;line-height:1.65}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:#0D0D18}
+::-webkit-scrollbar-thumb{background:#1A1A2E;border-radius:3px}
+::selection{background:rgba(99,102,241,0.28);color:#fff}
+
+@layer components {
+  .card{@apply bg-panel border border-border rounded-2xl;box-shadow:0 1px 0 rgba(255,255,255,0.025) inset}
+  .section-label{@apply text-sm font-mono uppercase tracking-widest text-subtle}
+  .gradient-text{background:linear-gradient(135deg,#fff 0%,#AAAACE 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  .accent-text{background:linear-gradient(135deg,#818CF8,#6366F1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  .badge-confirmed{@apply inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded-full;background:rgba(34,197,94,0.08);color:#22C55E;border:1px solid rgba(34,197,94,0.18)}
+  .badge-inferred{@apply inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded-full;background:rgba(245,158,11,0.08);color:#F59E0B;border:1px solid rgba(245,158,11,0.18)}
+  .badge-unknown{@apply inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded-full;background:rgba(107,114,128,0.08);color:#9CA3AF;border:1px solid rgba(107,114,128,0.15)}
+  .skeleton{background:linear-gradient(90deg,#1A1A2E 25%,#222238 50%,#1A1A2E 75%);background-size:400% 100%;animation:shimmer 2s infinite linear;border-radius:8px}
+  .tab-active{@apply bg-accent text-white shadow-glow-sm}
+  .tab-inactive{@apply text-subtle hover:text-text}
+}
+
+input[type='range']{-webkit-appearance:none;appearance:none;background:transparent;width:100%}
+input[type='range']::-webkit-slider-track{background:#1A1A2E;height:4px;border-radius:2px}
+input[type='range']::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;background:#6366F1;border-radius:50%;margin-top:-6px;cursor:pointer;box-shadow:0 0 8px rgba(99,102,241,0.5)}
