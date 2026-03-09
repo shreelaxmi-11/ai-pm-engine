@@ -178,7 +178,7 @@ INFRA DIAGRAM:
 - Never use "AI Model", "Backend Server", "Data Preprocessor" as standalone names
 - If stack is unknown, name components after the product's known features
 
-Return ONLY raw JSON starting with { ending with }. No markdown. No backticks.`;
+Return ONLY raw JSON starting with { ending with }. No markdown. No backticks.
 
 JSON structure:
 {
