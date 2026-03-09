@@ -86,29 +86,31 @@ JSON structure:
   "sources": [{ "title": "string", "url": "string", "type": "official|article|analysis" }]
 }`;
 
-// Hardcoded facts injected as Source [0] — highest priority, overrides all Tavily sources
 const FACTS_DB: Record<string, string> = {
-  "openai": "Hardware: NVIDIA A100/H100 SXM5 on Microsoft Azure (ND H100 v5 series). Framework: PyTorch + TensorRT. ChatGPT Plus: $20/mo. ChatGPT Team: $25/user/mo.",
-  "chatgpt voice": "Model: GPT-4o (speech-to-speech, NOT a Whisper pipeline). Hardware: NVIDIA H100 SXM5 on Azure. Framework: PyTorch. Context: 128K tokens. Latency: <320ms avg end-to-end. Cost: Free (limited), Plus $20/mo, Pro $200/mo. Privacy: audio not stored after session by default since March 2024. API: Realtime API over WebSocket. Deployment: cloud-only.",
+  "chatgpt voice": "Model: GPT-4o native speech-to-speech. Hardware: NVIDIA H100 SXM5 on Azure ND H100 v5. Framework: PyTorch. Context: 128K tokens. Latency: <320ms avg end-to-end. Cost: Free (limited), Plus $20/mo, Pro $200/mo. Privacy: audio not stored after session by default since March 2024. API: Realtime API over WebSocket. Deployment: cloud-only.",
   "chatgpt": "Model: GPT-4o (Plus/Pro), GPT-4o mini (Free). Hardware: NVIDIA H100 on Azure. Framework: PyTorch. Context: 128K tokens. Latency: ~500ms first token. Cost: Free, Plus $20/mo, Pro $200/mo. Deployment: cloud-only.",
-  "github copilot": "Model: GPT-4 based (Codex lineage), fine-tuned on public GitHub code. Hardware: NVIDIA A100 on Azure. Framework: PyTorch. Context: 64K tokens for code. Latency: 200-400ms inline completions. Cost: Free (limited), $10/mo individual, $19/mo business. Deployment: cloud-only via Azure OpenAI Service.",
-  "google lens": "Model: Vision Transformer (ViT-L) + Gemini multimodal (cloud). Hardware: Google TPU v5 (cloud), Tensor G3 NPU on Pixel (on-device). Framework: JAX (cloud), TensorFlow Lite (on-device). Latency: <200ms on-device object recognition, 800-1200ms for cloud queries. Cost: free. Deployment: hybrid — TFLite on-device for fast recognition, Gemini cloud for complex queries.",
-  "gemini": "Model: Gemini 1.5 Pro / Flash / 2.0. Hardware: Google TPU v5p. Framework: JAX. Context: 1M tokens (Gemini 1.5 Pro). Cost: Free, Advanced $19.99/mo. Deployment: cloud-only.",
+  "github copilot": "Model: GPT-4 based (Codex lineage), fine-tuned on public GitHub code. Hardware: NVIDIA A100 on Azure. Framework: PyTorch. Context: 64K tokens. Latency: 200-400ms inline completions. Cost: Free (limited), $10/mo individual, $19/mo business. Deployment: cloud-only via Azure OpenAI Service.",
+  "google lens": "Model: Vision Transformer (ViT-L) + Gemini multimodal. Hardware: Google TPU v5 (cloud), Tensor G3 NPU on Pixel (on-device). Framework: JAX (cloud), TensorFlow Lite (on-device). Latency: <200ms on-device, 800-1200ms cloud. Cost: free. Deployment: hybrid.",
   "gemini live": "Model: Gemini 1.5 Flash optimized for real-time audio. Hardware: Google TPU v5. Framework: JAX. Latency: <300ms conversational. Cost: Free / Google One AI Premium $19.99/mo. Deployment: cloud-only.",
-  "notion ai": "Model: OpenAI GPT-4 + Anthropic Claude (multi-model routing — NOT GPT-5, NOT Claude Opus 4.5 Beta, NOT Gemini 2.5). Hardware: NVIDIA A100 on Azure (via OpenAI) + AWS (via Anthropic). Framework: PyTorch (via provider APIs). Context: entire document passed as LLM context. Cost: $10/mo per member add-on, $8/mo billed annually. Privacy: Zero data retention for Enterprise plan. Deployment: cloud-only. Orchestration: internal model router selects GPT-4 vs Claude based on task type.",
-  "grammarly": "Model: Proprietary transformer + OpenAI GPT-4 for GrammarlyGO. Hardware: custom GPU clusters. Framework: PyTorch. Latency: <100ms grammar (extension), 1-2s generative. Cost: Free, Premium $12/mo, Business $15/user/mo. Deployment: hybrid — grammar on-device in extension, generative features cloud.",
-  "perplexity": "Model: Routes across GPT-4o, Claude 3.5, Llama 3, Mixtral. Hardware: NVIDIA H100 cluster. Framework: PyTorch. Context: 32K tokens. Latency: 2-4s full answer. Cost: Free, Pro $20/mo. Deployment: cloud-only. Architecture: live web search + LLM synthesis (RAG pipeline).",
-  "samsung transcript assist": "Model: Custom on-device ASR model. Hardware: Exynos 2400 NPU (34.4 TOPS, 6-core) / Snapdragon 8 Gen 3 NPU. Framework: Samsung Neural SDK + TensorFlow Lite. Context: up to 3 hours audio. Latency: real-time, <100ms display lag. Cost: free, bundled with Galaxy S23+. Privacy: fully on-device, audio never sent to Samsung servers. Deployment: on-device only (translation uses cloud).",
-  "samsung": "Hardware: Exynos 2400 NPU (34.4 TOPS). Framework: Samsung Neural SDK, TensorFlow Lite. Samsung Gauss LLM for cloud tasks. Galaxy AI: hybrid on-device + cloud.",
-  "apple intelligence": "Model: Custom Apple foundation models. Hardware: Apple Neural Engine (A17 Pro / M-series) + Apple Silicon servers. Framework: Core ML. Latency: <100ms on-device. Cost: free with iPhone 15 Pro / iPhone 16 / M-series Mac. Deployment: hybrid — on-device first, Private Cloud Compute for complex tasks. Privacy: PCC requests not logged by Apple.",
-  "claude": "Model: Claude 3.5 Sonnet (most capable), Claude 3.5 Haiku (fast). Hardware: AWS Trainium2 + Inferentia2. Framework: JAX. Context: 200K tokens. Latency: ~400ms first token. Cost: Free, Pro $20/mo, Team $25/user/mo. Deployment: cloud-only.",
-  "copilot": "Model: GPT-4o via OpenAI partnership. Hardware: Microsoft Azure NVIDIA H100. Framework: PyTorch. Context: 128K tokens. Cost: Free, Pro $20/mo, M365 Copilot $30/user/mo. Deployment: cloud-only.",
-  "meta ai": "Model: Llama 3.1 405B. Hardware: NVIDIA H100 on Meta custom infra. Framework: PyTorch. Context: 128K tokens. Cost: free. Deployment: cloud-only.",
+  "gemini": "Model: Gemini 1.5 Pro / Flash / 2.0. Hardware: Google TPU v5p. Framework: JAX. Context: 1M tokens (Gemini 1.5 Pro). Cost: Free, Advanced $19.99/mo. Deployment: cloud-only.",
+  "notion ai": "Model: OpenAI GPT-4 + Anthropic Claude (NOT GPT-5, NOT Claude Opus 4.5, NOT Gemini 2.5). Hardware: NVIDIA A100 on Azure + AWS. Framework: PyTorch. Context: entire document. Cost: $10/mo per member, $8/mo annually. Privacy: Zero data retention for Enterprise. Deployment: cloud-only. Orchestration: internal router selects GPT-4 vs Claude by task type.",
+  "grammarly": "Model: Proprietary transformer + GPT-4 for GrammarlyGO. Hardware: custom GPU clusters. Framework: PyTorch. Latency: <100ms grammar, 1-2s generative. Cost: Free, Premium $12/mo, Business $15/user/mo. Deployment: hybrid.",
+  "perplexity": "Model: Routes across GPT-4o, Claude 3.5, Llama 3, Mixtral. Hardware: NVIDIA H100. Framework: PyTorch. Context: 32K tokens. Latency: 2-4s. Cost: Free, Pro $20/mo. Deployment: cloud-only.",
+  "samsung transcript assist": "Model: Custom on-device ASR. Hardware: Exynos 2400 NPU (34.4 TOPS). Framework: Samsung Neural SDK + TFLite. Context: 3 hours audio. Latency: real-time <100ms. Cost: free bundled. Privacy: fully on-device, audio never sent to Samsung. Deployment: on-device only.",
+  "samsung": "Hardware: Exynos 2400 NPU (34.4 TOPS). Framework: Samsung Neural SDK, TFLite. Samsung Gauss LLM for cloud. Galaxy AI: hybrid.",
+  "apple intelligence": "Model: Custom Apple foundation models. Hardware: Apple Neural Engine (A17 Pro/M-series) + Apple Silicon servers. Framework: Core ML. Latency: <100ms on-device. Cost: free. Deployment: hybrid on-device + Private Cloud Compute. Privacy: PCC not logged.",
+  "siri": "Model: Custom Apple NLP + foundation models. Hardware: Apple Neural Engine. Framework: Core ML. Latency: <200ms on-device. Cost: free. Deployment: hybrid.",
+  "claude": "Model: Claude 3.5 Sonnet / Haiku. Hardware: AWS Trainium2 + Inferentia2. Framework: JAX. Context: 200K tokens. Latency: ~400ms. Cost: Free, Pro $20/mo, Team $25/user/mo. Deployment: cloud-only.",
+  "copilot": "Model: GPT-4o. Hardware: Azure NVIDIA H100. Framework: PyTorch. Context: 128K tokens. Cost: Free, Pro $20/mo, M365 $30/user/mo. Deployment: cloud-only.",
+  "meta ai": "Model: Llama 3.1 405B. Hardware: NVIDIA H100 Meta infra. Framework: PyTorch. Context: 128K tokens. Cost: free. Deployment: cloud-only.",
+  "dall-e": "Model: DALL-E 3. Hardware: NVIDIA H100 on Azure. Framework: PyTorch. Latency: 10-30s per image. Cost: included ChatGPT Plus, API $0.04-0.08/image. Deployment: cloud-only.",
+  "midjourney": "Model: Midjourney V6.1 proprietary diffusion. Hardware: NVIDIA A100 clusters. Framework: PyTorch. Latency: 30-60s. Cost: Basic $10/mo, Standard $30/mo, Pro $60/mo. Deployment: cloud-only.",
+  "stable diffusion": "Model: SDXL / SD 3.0 open source. Hardware: NVIDIA A100 or consumer GPU. Framework: PyTorch. Latency: 5-30s. Cost: free self-hosted. Deployment: hybrid.",
+  "whisper": "Model: Whisper large-v3. Hardware: NVIDIA GPU. Framework: PyTorch. Context: 30s audio chunks. Latency: ~2-5x real-time. Cost: $0.006/min API, free open source. WER: 2.7% English. Deployment: hybrid.",
 };
 
 function getKnownFacts(query: string): string {
   const ql = query.toLowerCase();
-  // Longest match first to avoid "chatgpt" matching "chatgpt voice"
   const keys = Object.keys(FACTS_DB).sort((a, b) => b.length - a.length);
   for (const key of keys) {
     if (ql.includes(key)) return FACTS_DB[key];
@@ -116,14 +118,17 @@ function getKnownFacts(query: string): string {
   return "";
 }
 
-async function searchTavily(query: string, key: string) {
+// ── Search providers ──────────────────────────────────────────────────────────
+
+async function searchTavily(query: string, key: string): Promise<{ title: string; url: string; content: string }[]> {
   const results: { title: string; url: string; content: string }[] = [];
-  await Promise.all([
+  const queries = [
     `${query} technical architecture model infrastructure`,
-    `${query} latency performance hardware engineering`,
-    `${query} product pricing features`,
-    `${query} system design pipeline how it works`,
-  ].map(async (q) => {
+    `${query} latency performance hardware specs`,
+    `${query} pricing cost product features`,
+    `${query} system design engineering how it works`,
+  ];
+  await Promise.all(queries.map(async (q) => {
     try {
       const r = await fetch("https://api.tavily.com/search", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -134,17 +139,68 @@ async function searchTavily(query: string, key: string) {
       const d = await r.json();
       for (const x of (d.results ?? []))
         if (!results.find(e => e.url === x.url))
-          results.push({ title: x.title ?? "", url: x.url ?? "", content: (x.content ?? "").slice(0, 1200) });
+          results.push({ title: x.title ?? "", url: x.url ?? "", content: (x.content ?? "").slice(0, 1000) });
     } catch { /* ignore */ }
   }));
-  return results.slice(0, 10);
+  return results;
 }
+
+async function searchSerper(query: string, key: string): Promise<{ title: string; url: string; content: string }[]> {
+  const results: { title: string; url: string; content: string }[] = [];
+  const queries = [
+    `${query} context window specs hardware`,
+    `${query} pricing model architecture`,
+  ];
+  await Promise.all(queries.map(async (q) => {
+    try {
+      const r = await fetch("https://google.serper.dev/search", {
+        method: "POST", headers: { "Content-Type": "application/json", "X-API-KEY": key },
+        body: JSON.stringify({ q, num: 5 }),
+      });
+      if (!r.ok) return;
+      const d = await r.json();
+      // Pull from organic results + knowledge graph + answer box
+      if (d.answerBox?.answer)
+        results.push({ title: "Google Answer Box", url: d.answerBox?.link ?? "", content: d.answerBox.answer });
+      if (d.knowledgeGraph?.description)
+        results.push({ title: d.knowledgeGraph.title ?? "Knowledge Graph", url: d.knowledgeGraph.descriptionLink ?? "", content: JSON.stringify(d.knowledgeGraph) });
+      for (const x of (d.organic ?? []))
+        if (!results.find(e => e.url === x.link))
+          results.push({ title: x.title ?? "", url: x.link ?? "", content: (x.snippet ?? "") });
+    } catch { /* ignore */ }
+  }));
+  return results;
+}
+
+async function searchExa(query: string, key: string): Promise<{ title: string; url: string; content: string }[]> {
+  const results: { title: string; url: string; content: string }[] = [];
+  try {
+    const r = await fetch("https://api.exa.ai/search", {
+      method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key },
+      body: JSON.stringify({ query: `${query} technical specs architecture`, numResults: 5,
+        useAutoprompt: true, contents: { text: { maxCharacters: 800 } } }),
+    });
+    if (!r.ok) return results;
+    const d = await r.json();
+    for (const x of (d.results ?? []))
+      results.push({ title: x.title ?? "", url: x.url ?? "", content: x.text ?? "" });
+  } catch { /* ignore */ }
+  return results;
+}
+
+
+
+// ── Main handler ──────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const tavilyKey = process.env.TAVILY_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
+  const serperKey = process.env.SERPER_API_KEY;
+  const exaKey    = process.env.EXA_API_KEY;
+
+
   if (!tavilyKey || !openaiKey)
-    return new Response(JSON.stringify({ error: "API keys missing. Add TAVILY_API_KEY and OPENAI_API_KEY in Vercel → Settings → Environment Variables." }), { status: 500 });
+    return new Response(JSON.stringify({ error: "TAVILY_API_KEY and OPENAI_API_KEY are required in Vercel → Settings → Environment Variables." }), { status: 500 });
 
   const { query } = await req.json();
   if (!query?.trim()) return new Response(JSON.stringify({ error: "Query required" }), { status: 400 });
@@ -155,27 +211,57 @@ export async function POST(req: NextRequest) {
       const send = (event: string, data: unknown) =>
         ctrl.enqueue(encoder.encode(`data: ${JSON.stringify({ event, data })}\n\n`));
       try {
-        send("status", { step: 1, message: "Searching public sources…" });
-        const sources = await searchTavily(query.trim(), tavilyKey);
-        if (!sources.length) { send("error", { message: "No sources found. Check TAVILY_API_KEY in Vercel." }); ctrl.close(); return; }
+        send("status", { step: 1, message: "Searching across all sources in parallel…" });
 
-        send("status", { step: 2, message: `Found ${sources.length} sources. Analyzing…` });
+        // All search providers fire simultaneously
+        const [tavilyResults, serperResults, exaResults] = await Promise.all([
+          searchTavily(query.trim(), tavilyKey),
+          serperKey ? searchSerper(query.trim(), serperKey) : Promise.resolve([]),
+          exaKey    ? searchExa(query.trim(), exaKey)       : Promise.resolve([]),
+        ]);
 
-        // Inject known facts as Source [0] — authoritative, overrides all others
+        // Deduplicate across all providers
+        const seen = new Set<string>();
+        const allSources: { title: string; url: string; content: string; provider: string }[] = [];
+        for (const [results, provider] of [
+          [serperResults, "Serper"],   // Serper first — best for factual specs
+          [exaResults,    "Exa"],
+          [tavilyResults, "Tavily"],   // Tavily last — best for deep article content
+        ] as [{ title: string; url: string; content: string }[], string][]) {
+          for (const s of results) {
+            if (s.url && !seen.has(s.url)) {
+              seen.add(s.url);
+              allSources.push({ ...s, provider });
+            }
+          }
+        }
+
+        if (!allSources.length) {
+          send("error", { message: "No sources found. Check API keys in Vercel." });
+          ctrl.close(); return;
+        }
+
+        const providersUsed = [...new Set(allSources.map(s => s.provider))].join(", ");
+        send("status", { step: 2, message: `Found ${allSources.length} sources via ${providersUsed}. Analyzing…` });
+
+        // Inject known facts as Source [0]
         const knownFacts = getKnownFacts(query.trim());
         const source0 = knownFacts
-          ? `[0] INTERNAL VERIFIED FACTS DATABASE (highest authority — facts here are CONFIRMED and override all other sources)\n${knownFacts}\n\n---\n\n`
+          ? `[0] INTERNAL VERIFIED FACTS DATABASE (highest authority — overrides all other sources)\n${knownFacts}\n\n---\n\n`
           : "";
 
-        const sourcesText = sources.map((s, i) => `[${i+1}] ${s.title}\nURL: ${s.url}\n${s.content}`).join("\n\n---\n\n");
+        const sourcesText = allSources
+          .slice(0, 20)
+          .map((s, i) => `[${i+1}] ${s.title} (via ${s.provider})\nURL: ${s.url}\n${s.content}`)
+          .join("\n\n---\n\n");
 
         const userMsg = `Analyze: "${query.trim()}"
 
-Sources (Source [0] is authoritative internal database — its facts override all others):
+Sources (Source [0] is authoritative internal DB — overrides all others):
 
 ${source0}${sourcesText}
 
-Use Source [0] facts directly and mark them "confirmed". Use other sources only to add information not already in Source [0]. Fill remaining gaps with your training knowledge and mark "inferred". Return ONLY the JSON.`;
+Use Source [0] facts directly, mark "confirmed". Use other sources to add info not in Source [0]. Fill gaps with training knowledge, mark "inferred". Return ONLY JSON.`;
 
         send("status", { step: 3, message: "Extracting fields and PM signals…" });
 
@@ -207,9 +293,12 @@ Use Source [0] facts directly and mark them "confirmed". Use other sources only 
 
         result.id = query.trim().toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, "-");
         result.generatedAt = new Date().toISOString();
-        const seen = new Set((result.sources ?? []).map((s: { url: string }) => s.url));
-        for (const s of sources)
-          if (!seen.has(s.url)) { result.sources = [...(result.sources ?? []), { title: s.title, url: s.url, type: "article" }]; seen.add(s.url); }
+        const seenUrls = new Set((result.sources ?? []).map((s: { url: string }) => s.url));
+        for (const s of allSources)
+          if (!seenUrls.has(s.url)) {
+            result.sources = [...(result.sources ?? []), { title: s.title, url: s.url, type: "article" }];
+            seenUrls.add(s.url);
+          }
 
         send("complete", result);
       } catch (e) {
