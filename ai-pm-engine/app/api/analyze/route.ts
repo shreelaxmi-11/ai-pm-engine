@@ -294,6 +294,7 @@ export async function POST(req: NextRequest) {
 
   const { query } = await req.json();
   if (!query?.trim()) return new Response(JSON.stringify({ error: "Query required" }), { status: 400 });
+  const safeQuery = query.trim().replace(/[\uD800-\uDFFF]/g, "").replace(/[\u0000-\u001F]/g, " ");
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -303,13 +304,13 @@ export async function POST(req: NextRequest) {
       try {
         // ── Phase 1: Google → get URLs + answer boxes ─────────────────────────
         send("status", { step: 1, message: "Searching Google for sources…" });
-        const google = await getGoogleUrls(query.trim(), serperKey);
+        const google = await getGoogleUrls(safeQuery, serperKey);
 
         // ── Phase 2: Fetch full content of those URLs ─────────────────────────
         send("status", { step: 2, message: `Found ${google.urls.length} sources. Fetching full content…` });
         const [fullContent, exaResults] = await Promise.all([
-          fetchFullContent(google.urls, query.trim(), tavilyKey),
-          searchExa(query.trim(), exaKey),
+          fetchFullContent(google.urls, safeQuery, tavilyKey),
+          searchExa(safeQuery, exaKey),
         ]);
 
         // Merge all sources
@@ -335,12 +336,36 @@ export async function POST(req: NextRequest) {
 
         send("status", { step: 3, message: `Analyzing ${allSources.length} sources…` });
 
-        // Sanitize text — strip surrogate pairs and non-UTF8 chars that break JSON
-        const sanitize = (s: string) => s
-          .replace(/[\uD800-\uDFFF]/g, "")   // lone surrogates
-          .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "") // control chars
-          .replace(/\uFFFD/g, "")              // replacement chars
-          .trim();
+        // Sanitize: strip every character that can break JSON serialization
+        const sanitize = (s: string): string => {
+          if (!s) return "";
+          let result = "";
+          for (let i = 0; i < s.length; i++) {
+            const code = s.charCodeAt(i);
+            // Skip lone surrogates (the exact cause of "no low surrogate" errors)
+            if (code >= 0xD800 && code <= 0xDBFF) {
+              // High surrogate — check if followed by low surrogate
+              const next = s.charCodeAt(i + 1);
+              if (next >= 0xDC00 && next <= 0xDFFF) {
+                result += s[i] + s[i + 1]; // valid surrogate pair
+                i++;
+              }
+              // else: lone high surrogate — skip it
+            } else if (code >= 0xDC00 && code <= 0xDFFF) {
+              // Lone low surrogate — skip
+            } else if (code === 0 || (code >= 0x0001 && code <= 0x0008) ||
+                       code === 0x000B || code === 0x000C ||
+                       (code >= 0x000E && code <= 0x001F)) {
+              // Control chars — skip
+            } else {
+              result += s[i];
+            }
+          }
+          return result.trim();
+        };
+        // Sanitize a JSON-stringified object
+        const sanitizeJson = (obj: unknown): string =>
+          sanitize(JSON.stringify(obj, null, 2));
 
         // ── Phase 3: Extract confirmed facts ──────────────────────────────────
         const topForExtract = allSources.slice(0, 20);
@@ -361,7 +386,7 @@ export async function POST(req: NextRequest) {
                 "anthropic-version": "2023-06-01",
               },
               body: JSON.stringify({
-                model: fast ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-5-20251001",
+                model: fast ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-5-20250929",
                 max_tokens: fast ? 1500 : 4096,
                 system,
                 messages: [{ role: "user", content: user }],
@@ -391,7 +416,7 @@ export async function POST(req: NextRequest) {
 
         const extractRaw = await callLLM(
           EXTRACT_SYSTEM,
-          `Product: "${query.trim()}"${kgSection}\n\nSources:\n${sourcesText}`,
+          `Product: "${safeQuery}"${kgSection}\n\nSources:\n${sourcesText}`,
           true
         );
         let extracted: Record<string, unknown> = {};
@@ -404,17 +429,17 @@ export async function POST(req: NextRequest) {
         // ── Phase 4: Synthesize full analysis ────────────────────────────────
         send("status", { step: 4, message: `Synthesizing with ${useClaude ? "Claude Sonnet" : "GPT-4o"}…` });
 
-        const synthesizeMsg = `Analyze THIS SPECIFIC FEATURE: "${query.trim()}"
+        const synthesizeMsg = `Analyze THIS SPECIFIC FEATURE: "${safeQuery}"
 
 CONFIRMED FACTS (extracted from live sources — mark these "confirmed"):
-${JSON.stringify(extracted, null, 2)}
+${sanitizeJson(extracted)}
 
-${google.knowledgeGraph ? `GOOGLE KNOWLEDGE GRAPH:\n${google.knowledgeGraph}\n` : ""}
+${google.knowledgeGraph ? `GOOGLE KNOWLEDGE GRAPH:\n${sanitize(google.knowledgeGraph)}\n` : ""}
 TOP SOURCES (full content):
 ${allSources.slice(0, 10).map((s, i) => `[${i+1}] ${sanitize(s.title)}\nURL: ${s.url}\n${sanitize(s.content).slice(0, 4000)}`).join("\n\n---\n\n")}
 
 CRITICAL RULES:
-1. Only apply facts specifically about "${query.trim()}" — not other features of the same product
+1. Only apply facts specifically about "${safeQuery}" — not other features of the same product
 2. Use your training knowledge to fill gaps — mark "inferred" with real specific numbers
 3. "unknown" only when you have absolutely zero basis — should be rare
 4. Every pmInsight MUST contain a specific number and a real PM decision to own
@@ -437,7 +462,7 @@ Return ONLY valid JSON. No markdown. No backticks.`;
           catch { send("error", { message: "Parse error." }); ctrl.close(); return; }
         }
 
-        result.id = query.trim().toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, "-");
+        result.id = safeQuery.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, "-");
         result.generatedAt = new Date().toISOString();
 
         // Attach all sources
