@@ -375,7 +375,7 @@ export async function POST(req: NextRequest) {
         // Organic snippets as fallback
         for (const s of google.organicSnippets) addSource(s.title, s.url, s.snippet, "article");
 
-        send("status", { step: 3, message: `Synthesizing ${allSources.length} sources with Claude Sonnet…` });
+        send("status", { step: 3, message: `Analyzing ${allSources.length} sources…` });
 
         // Aliases to module-level sanitizers
         const sanitize = sanitizeStr;
@@ -396,8 +396,8 @@ export async function POST(req: NextRequest) {
               "anthropic-version": "2023-06-01",
             },
             body: JSON.stringify({
-              model: fast ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-5-20250929",
-              max_tokens: fast ? 800 : 2500,
+              model: "claude-haiku-4-5-20251001", // Haiku for speed — 100+ tok/s
+              max_tokens: 2000, // single value for Haiku
               system,
               messages: [{ role: "user", content: user }],
             }),
@@ -411,7 +411,7 @@ export async function POST(req: NextRequest) {
         const extracted: Record<string, unknown> = {};
 
         // ── Phase 4: Synthesize full analysis ────────────────────────────────
-        send("status", { step: 4, message: "Synthesizing with Claude Sonnet…" });
+        send("status", { step: 4, message: "Synthesizing with Claude Haiku…" });
 
         const synthesizeMsg = `Analyze THIS SPECIFIC FEATURE: "${safeQuery}"
 
@@ -432,7 +432,7 @@ Return ONLY valid JSON. No markdown. No backticks.`;
 
         const synthRaw = await Promise.race([
           callLLM(SYNTHESIZE_SYSTEM, synthesizeMsg, false),
-          new Promise<string>((_, rej) => setTimeout(() => rej(new Error("Synthesis timeout after 30s")), 30000)),
+          new Promise<string>((_, rej) => setTimeout(() => rej(new Error("Synthesis timeout after 20s")), 20000)),
         ]) as string;
         if (!synthRaw) { send("error", { message: "Empty response." }); ctrl.close(); return; }
 
