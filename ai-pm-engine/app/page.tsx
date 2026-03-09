@@ -125,7 +125,7 @@ export default function Home() {
           {mode==="explore" && (
             <div className="space-y-3">
               <div className="text-center px-2">
-                <p className="text-base text-text-dim leading-relaxed max-w-2xl mx-auto">Search any AI product feature - like Google Lens or Samsung Transcript Assist. In 30 seconds you get a full breakdown: what model powers it, how fast it is, what it costs to run, and what trade-offs the team had to make. Think of it as an X-ray for any AI product.</p>
+                <p className="text-base text-text-dim leading-relaxed max-w-2xl mx-auto">Search any AI product feature - like Google Gemini or Notion AI Summary. In 30 seconds you get a full breakdown: what model powers it, how fast it is, what it costs to run and what trade-offs the team had to make. Think of it as an X-ray for any AI product.</p>
               </div>
               <SearchBar onSearch={handleSearch} loading={loading}/>
             </div>
