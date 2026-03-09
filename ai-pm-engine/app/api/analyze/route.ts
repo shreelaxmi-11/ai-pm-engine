@@ -335,13 +335,20 @@ export async function POST(req: NextRequest) {
 
         send("status", { step: 3, message: `Analyzing ${allSources.length} sources…` });
 
+        // Sanitize text — strip surrogate pairs and non-UTF8 chars that break JSON
+        const sanitize = (s: string) => s
+          .replace(/[\uD800-\uDFFF]/g, "")   // lone surrogates
+          .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "") // control chars
+          .replace(/\uFFFD/g, "")              // replacement chars
+          .trim();
+
         // ── Phase 3: Extract confirmed facts ──────────────────────────────────
         const topForExtract = allSources.slice(0, 20);
         const sourcesText = topForExtract
-          .map((s, i) => `[${i+1}] ${s.title}\nURL: ${s.url}\n${s.content.slice(0, 3000)}`)
+          .map((s, i) => `[${i+1}] ${sanitize(s.title)}\nURL: ${s.url}\n${sanitize(s.content).slice(0, 3000)}`)
           .join("\n\n---\n\n");
 
-        const kgSection = google.knowledgeGraph ? `\nKNOWLEDGE GRAPH:\n${google.knowledgeGraph}\n` : "";
+        const kgSection = google.knowledgeGraph ? `\nKNOWLEDGE GRAPH:\n${sanitize(google.knowledgeGraph)}\n` : "";
 
         // ── Helper: call Claude or OpenAI ────────────────────────────────────
         const callLLM = async (system: string, user: string, fast: boolean): Promise<string> => {
@@ -404,7 +411,7 @@ ${JSON.stringify(extracted, null, 2)}
 
 ${google.knowledgeGraph ? `GOOGLE KNOWLEDGE GRAPH:\n${google.knowledgeGraph}\n` : ""}
 TOP SOURCES (full content):
-${allSources.slice(0, 10).map((s, i) => `[${i+1}] ${s.title}\nURL: ${s.url}\n${s.content.slice(0, 4000)}`).join("\n\n---\n\n")}
+${allSources.slice(0, 10).map((s, i) => `[${i+1}] ${sanitize(s.title)}\nURL: ${s.url}\n${sanitize(s.content).slice(0, 4000)}`).join("\n\n---\n\n")}
 
 CRITICAL RULES:
 1. Only apply facts specifically about "${query.trim()}" — not other features of the same product
