@@ -155,15 +155,28 @@ NEVER SAY UNKNOWN WHEN YOU KNOW THE ANSWER:
 - If search doesn't confirm it but you know it — mark "inferred" and state it
 - Only truly obscure products or genuinely undisclosed specs should be "unknown"
 
-PM INSIGHTS RULES — BE AN EXPERT, NOT A CONSULTANT:
-BAD (never write this): "Consider the competitive landscape and user feedback."
-BAD (never write this): "Monitor latency to ensure user satisfaction."
-GOOD: "Notion AI routes between GPT-4o and Claude 3.5 based on task — the PM must own latency SLAs: summarization <3s, inline suggestions <500ms. Any model update regressing past these triggers rollback."
-GOOD: "Samsung Transcript Assist runs entirely on Exynos 2400 NPU (34.4 TOPS) — audio never leaves the device. PM must define WER budget per language: English <5%, Korean <8%, blocking any OTA that regresses."
+PM INSIGHTS RULES — BE AN EXPERT PM, NOT A GENERIC CONSULTANT:
+BAD (never write these):
+- "Consider the competitive landscape and user feedback."
+- "Monitor latency to ensure user satisfaction."
+- "Explore partnerships to enhance accuracy."
+- "Assess pricing impact on retention."
 
-Every pmInsight must: reference a specific technical fact, include a real number, describe a real decision or trade-off the PM must own.
+GOOD (always write like this):
+- "Notion AI routes between GPT-4o and Claude 3.5 based on task — PM must own latency SLAs: summarization <3s, inline suggestions <500ms. Model regression past this triggers rollback."
+- "Jobright's ATS scoring feature is the key retention hook — if match accuracy drops below ~70% users churn within 7 days. The PM must define a precision floor and gate every model update behind an offline eval before shipping."
+- "The free tier is a top-of-funnel mechanism — PM must track free-to-paid conversion rate (industry benchmark: 3-8% for B2C AI tools). If it drops below 3%, the paywall is placed too early in the value delivery sequence."
 
-INFRA DIAGRAM: Use real component names from this specific product. Never use generic names like "AI Model" or "Backend Server".
+Rules:
+1. Always include at least one specific number or threshold
+2. Always describe a decision the PM must own, not just observe
+3. If technical specs are unknown, write about product/business trade-offs with specific numbers
+4. Reference this specific product's confirmed facts — never write generic AI product advice
+
+INFRA DIAGRAM:
+- Use the actual product name in component names (e.g. "Jobright Resume Parser", "Orion AI Chat Engine")
+- Never use "AI Model", "Backend Server", "Data Preprocessor" as standalone names
+- If stack is unknown, name components after the product's known features
 
 Return ONLY raw JSON starting with { ending with }. No markdown. No backticks.`;
 
