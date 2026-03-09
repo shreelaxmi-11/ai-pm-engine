@@ -86,28 +86,28 @@ JSON structure:
   "sources": [{ "title": "string", "url": "string", "type": "official|article|analysis" }]
 }`;
 
-// const FACTS_DB: Record<string, string> = {
-//   "chatgpt voice": "Model: GPT-4o native speech-to-speech. Hardware: NVIDIA H100 SXM5 on Azure ND H100 v5. Framework: PyTorch. Context: 128K tokens. Latency: <320ms avg end-to-end. Cost: Free (limited), Plus $20/mo, Pro $200/mo. Privacy: audio not stored after session by default since March 2024. API: Realtime API over WebSocket. Deployment: cloud-only.",
-//   "chatgpt": "Model: GPT-4o (Plus/Pro), GPT-4o mini (Free). Hardware: NVIDIA H100 on Azure. Framework: PyTorch. Context: 128K tokens. Latency: ~500ms first token. Cost: Free, Plus $20/mo, Pro $200/mo. Deployment: cloud-only.",
-//   "github copilot": "Model: GPT-4 based (Codex lineage), fine-tuned on public GitHub code. Hardware: NVIDIA A100 on Azure. Framework: PyTorch. Context: 64K tokens. Latency: 200-400ms inline completions. Cost: Free (limited), $10/mo individual, $19/mo business. Deployment: cloud-only via Azure OpenAI Service.",
-//   "google lens": "Model: Vision Transformer (ViT-L) + Gemini multimodal. Hardware: Google TPU v5 (cloud), Tensor G3 NPU on Pixel (on-device). Framework: JAX (cloud), TensorFlow Lite (on-device). Latency: <200ms on-device, 800-1200ms cloud. Cost: free. Deployment: hybrid.",
-//   "gemini live": "Model: Gemini 1.5 Flash optimized for real-time audio. Hardware: Google TPU v5. Framework: JAX. Latency: <300ms conversational. Cost: Free / Google One AI Premium $19.99/mo. Deployment: cloud-only.",
-//   "gemini": "Model: Gemini 1.5 Pro / Flash / 2.0. Hardware: Google TPU v5p. Framework: JAX. Context: 1M tokens (Gemini 1.5 Pro). Cost: Free, Advanced $19.99/mo. Deployment: cloud-only.",
-//   "notion ai": "Model: OpenAI GPT-4 + Anthropic Claude (NOT GPT-5, NOT Claude Opus 4.5, NOT Gemini 2.5). Hardware: NVIDIA A100 on Azure + AWS. Framework: PyTorch. Context: entire document. Cost: $10/mo per member, $8/mo annually. Privacy: Zero data retention for Enterprise. Deployment: cloud-only. Orchestration: internal router selects GPT-4 vs Claude by task type.",
-//   "grammarly": "Model: Proprietary transformer + GPT-4 for GrammarlyGO. Hardware: custom GPU clusters. Framework: PyTorch. Latency: <100ms grammar, 1-2s generative. Cost: Free, Premium $12/mo, Business $15/user/mo. Deployment: hybrid.",
-//   "perplexity": "Model: Routes across GPT-4o, Claude 3.5, Llama 3, Mixtral. Hardware: NVIDIA H100. Framework: PyTorch. Context: 32K tokens. Latency: 2-4s. Cost: Free, Pro $20/mo. Deployment: cloud-only.",
-//   "samsung transcript assist": "Model: Custom on-device ASR. Hardware: Exynos 2400 NPU (34.4 TOPS). Framework: Samsung Neural SDK + TFLite. Context: 3 hours audio. Latency: real-time <100ms. Cost: free bundled. Privacy: fully on-device, audio never sent to Samsung. Deployment: on-device only.",
-//   "samsung": "Hardware: Exynos 2400 NPU (34.4 TOPS). Framework: Samsung Neural SDK, TFLite. Samsung Gauss LLM for cloud. Galaxy AI: hybrid.",
-//   "apple intelligence": "Model: Custom Apple foundation models. Hardware: Apple Neural Engine (A17 Pro/M-series) + Apple Silicon servers. Framework: Core ML. Latency: <100ms on-device. Cost: free. Deployment: hybrid on-device + Private Cloud Compute. Privacy: PCC not logged.",
-//   "siri": "Model: Custom Apple NLP + foundation models. Hardware: Apple Neural Engine. Framework: Core ML. Latency: <200ms on-device. Cost: free. Deployment: hybrid.",
-//   "claude": "Model: Claude 3.5 Sonnet / Haiku. Hardware: AWS Trainium2 + Inferentia2. Framework: JAX. Context: 200K tokens. Latency: ~400ms. Cost: Free, Pro $20/mo, Team $25/user/mo. Deployment: cloud-only.",
-//   "copilot": "Model: GPT-4o. Hardware: Azure NVIDIA H100. Framework: PyTorch. Context: 128K tokens. Cost: Free, Pro $20/mo, M365 $30/user/mo. Deployment: cloud-only.",
-//   "meta ai": "Model: Llama 3.1 405B. Hardware: NVIDIA H100 Meta infra. Framework: PyTorch. Context: 128K tokens. Cost: free. Deployment: cloud-only.",
-//   "dall-e": "Model: DALL-E 3. Hardware: NVIDIA H100 on Azure. Framework: PyTorch. Latency: 10-30s per image. Cost: included ChatGPT Plus, API $0.04-0.08/image. Deployment: cloud-only.",
-//   "midjourney": "Model: Midjourney V6.1 proprietary diffusion. Hardware: NVIDIA A100 clusters. Framework: PyTorch. Latency: 30-60s. Cost: Basic $10/mo, Standard $30/mo, Pro $60/mo. Deployment: cloud-only.",
-//   "stable diffusion": "Model: SDXL / SD 3.0 open source. Hardware: NVIDIA A100 or consumer GPU. Framework: PyTorch. Latency: 5-30s. Cost: free self-hosted. Deployment: hybrid.",
-//   "whisper": "Model: Whisper large-v3. Hardware: NVIDIA GPU. Framework: PyTorch. Context: 30s audio chunks. Latency: ~2-5x real-time. Cost: $0.006/min API, free open source. WER: 2.7% English. Deployment: hybrid.",
-// };
+const FACTS_DB: Record<string, string> = {
+  "chatgpt voice": "Model: GPT-4o native speech-to-speech. Hardware: NVIDIA H100 SXM5 on Azure ND H100 v5. Framework: PyTorch. Context: 128K tokens. Latency: <320ms avg end-to-end. Cost: Free (limited), Plus $20/mo, Pro $200/mo. Privacy: audio not stored after session by default since March 2024. API: Realtime API over WebSocket. Deployment: cloud-only.",
+  // "chatgpt": "Model: GPT-4o (Plus/Pro), GPT-4o mini (Free). Hardware: NVIDIA H100 on Azure. Framework: PyTorch. Context: 128K tokens. Latency: ~500ms first token. Cost: Free, Plus $20/mo, Pro $200/mo. Deployment: cloud-only.",
+  // "github copilot": "Model: GPT-4 based (Codex lineage), fine-tuned on public GitHub code. Hardware: NVIDIA A100 on Azure. Framework: PyTorch. Context: 64K tokens. Latency: 200-400ms inline completions. Cost: Free (limited), $10/mo individual, $19/mo business. Deployment: cloud-only via Azure OpenAI Service.",
+  // "google lens": "Model: Vision Transformer (ViT-L) + Gemini multimodal. Hardware: Google TPU v5 (cloud), Tensor G3 NPU on Pixel (on-device). Framework: JAX (cloud), TensorFlow Lite (on-device). Latency: <200ms on-device, 800-1200ms cloud. Cost: free. Deployment: hybrid.",
+  // "gemini live": "Model: Gemini 1.5 Flash optimized for real-time audio. Hardware: Google TPU v5. Framework: JAX. Latency: <300ms conversational. Cost: Free / Google One AI Premium $19.99/mo. Deployment: cloud-only.",
+  // "gemini": "Model: Gemini 1.5 Pro / Flash / 2.0. Hardware: Google TPU v5p. Framework: JAX. Context: 1M tokens (Gemini 1.5 Pro). Cost: Free, Advanced $19.99/mo. Deployment: cloud-only.",
+  // "notion ai": "Model: OpenAI GPT-4 + Anthropic Claude (NOT GPT-5, NOT Claude Opus 4.5, NOT Gemini 2.5). Hardware: NVIDIA A100 on Azure + AWS. Framework: PyTorch. Context: entire document. Cost: $10/mo per member, $8/mo annually. Privacy: Zero data retention for Enterprise. Deployment: cloud-only. Orchestration: internal router selects GPT-4 vs Claude by task type.",
+  // "grammarly": "Model: Proprietary transformer + GPT-4 for GrammarlyGO. Hardware: custom GPU clusters. Framework: PyTorch. Latency: <100ms grammar, 1-2s generative. Cost: Free, Premium $12/mo, Business $15/user/mo. Deployment: hybrid.",
+  // "perplexity": "Model: Routes across GPT-4o, Claude 3.5, Llama 3, Mixtral. Hardware: NVIDIA H100. Framework: PyTorch. Context: 32K tokens. Latency: 2-4s. Cost: Free, Pro $20/mo. Deployment: cloud-only.",
+  // "samsung transcript assist": "Model: Custom on-device ASR. Hardware: Exynos 2400 NPU (34.4 TOPS). Framework: Samsung Neural SDK + TFLite. Context: 3 hours audio. Latency: real-time <100ms. Cost: free bundled. Privacy: fully on-device, audio never sent to Samsung. Deployment: on-device only.",
+  // "samsung": "Hardware: Exynos 2400 NPU (34.4 TOPS). Framework: Samsung Neural SDK, TFLite. Samsung Gauss LLM for cloud. Galaxy AI: hybrid.",
+  // "apple intelligence": "Model: Custom Apple foundation models. Hardware: Apple Neural Engine (A17 Pro/M-series) + Apple Silicon servers. Framework: Core ML. Latency: <100ms on-device. Cost: free. Deployment: hybrid on-device + Private Cloud Compute. Privacy: PCC not logged.",
+  // "siri": "Model: Custom Apple NLP + foundation models. Hardware: Apple Neural Engine. Framework: Core ML. Latency: <200ms on-device. Cost: free. Deployment: hybrid.",
+  // "claude": "Model: Claude 3.5 Sonnet / Haiku. Hardware: AWS Trainium2 + Inferentia2. Framework: JAX. Context: 200K tokens. Latency: ~400ms. Cost: Free, Pro $20/mo, Team $25/user/mo. Deployment: cloud-only.",
+  // "copilot": "Model: GPT-4o. Hardware: Azure NVIDIA H100. Framework: PyTorch. Context: 128K tokens. Cost: Free, Pro $20/mo, M365 $30/user/mo. Deployment: cloud-only.",
+  // "meta ai": "Model: Llama 3.1 405B. Hardware: NVIDIA H100 Meta infra. Framework: PyTorch. Context: 128K tokens. Cost: free. Deployment: cloud-only.",
+  // "dall-e": "Model: DALL-E 3. Hardware: NVIDIA H100 on Azure. Framework: PyTorch. Latency: 10-30s per image. Cost: included ChatGPT Plus, API $0.04-0.08/image. Deployment: cloud-only.",
+  // "midjourney": "Model: Midjourney V6.1 proprietary diffusion. Hardware: NVIDIA A100 clusters. Framework: PyTorch. Latency: 30-60s. Cost: Basic $10/mo, Standard $30/mo, Pro $60/mo. Deployment: cloud-only.",
+  // "stable diffusion": "Model: SDXL / SD 3.0 open source. Hardware: NVIDIA A100 or consumer GPU. Framework: PyTorch. Latency: 5-30s. Cost: free self-hosted. Deployment: hybrid.",
+  // "whisper": "Model: Whisper large-v3. Hardware: NVIDIA GPU. Framework: PyTorch. Context: 30s audio chunks. Latency: ~2-5x real-time. Cost: $0.006/min API, free open source. WER: 2.7% English. Deployment: hybrid.",
+};
 
 function getKnownFacts(query: string): string {
   const ql = query.toLowerCase();
