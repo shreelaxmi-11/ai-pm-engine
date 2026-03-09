@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 // Fetch with timeout
 async function fetchWithTimeout(url: string, opts: RequestInit, ms = 8000): Promise<Response> {
@@ -28,16 +28,15 @@ async function getGoogleUrls(query: string, key: string): Promise<{
   if (!key) return { answerBoxes, knowledgeGraph, urls: [], organicSnippets };
 
   const queries = [
-    query,
-    `${query} model architecture hardware specs technical`,
-  ]; // 2 queries for speed
+    `${query} AI feature model architecture technical specs`,
+  ]; // 1 query for speed
 
   await Promise.all(queries.map(async (q) => {
     try {
       const r = await fetchWithTimeout("https://google.serper.dev/search", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-KEY": key },
-        body: JSON.stringify({ q, num: 6, gl: "us", hl: "en" }),  // num: 6 for speed
+        body: JSON.stringify({ q, num: 5, gl: "us", hl: "en" }),
       });
       if (!r.ok) return;
       const d = await r.json();
@@ -154,8 +153,8 @@ async function searchExa(query: string, key: string): Promise<{ title: string; u
       method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key },
       body: JSON.stringify({
         query: `${query} technical specifications model hardware pricing architecture`,
-        numResults: 6, useAutoprompt: true,
-        contents: { text: { maxCharacters: 2000 } }
+        numResults: 3, useAutoprompt: true,
+        contents: { text: { maxCharacters: 800 } }
       }),
     });
     if (!r.ok) return [];
@@ -348,10 +347,10 @@ export async function POST(req: NextRequest) {
         send("status", { step: 1, message: "Searching Google for sources…" });
         const google = await getGoogleUrls(safeQuery, serperKey);
 
-        // ── Phase 2: Fetch full content of those URLs ─────────────────────────
-        send("status", { step: 2, message: `Found ${google.urls.length} sources. Fetching full content…` });
+        // ── Phase 2: Exa semantic search (parallel, fast) ────────────────────
+        send("status", { step: 2, message: `Found ${google.urls.length} sources. Running semantic search…` });
         const [fullContent, exaResults] = await Promise.all([
-          fetchFullContent(google.urls, safeQuery, tavilyKey),
+          Promise.resolve([]), // Tavily extract skipped for speed
           searchExa(safeQuery, exaKey),
         ]);
 
@@ -398,7 +397,7 @@ export async function POST(req: NextRequest) {
             },
             body: JSON.stringify({
               model: fast ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-5-20250929",
-              max_tokens: fast ? 1000 : 3000,
+              max_tokens: fast ? 800 : 2500,
               system,
               messages: [{ role: "user", content: user }],
             }),
@@ -421,7 +420,7 @@ ${sanitizeJson(extracted)}
 
 ${google.knowledgeGraph ? `GOOGLE KNOWLEDGE GRAPH:\n${sanitize(google.knowledgeGraph)}\n` : ""}
 TOP SOURCES (full content):
-${allSources.slice(0, 5).map((s, i) => `[${i+1}] ${sanitize(s.title)}\nURL: ${s.url}\n${sanitize(s.content).slice(0, 1200)}`).join("\n\n---\n\n")}
+${allSources.slice(0, 4).map((s, i) => `[${i+1}] ${sanitize(s.title)}\nURL: ${s.url}\n${sanitize(s.content).slice(0, 600)}`).join("\n\n---\n\n")}
 
 CRITICAL RULES:
 1. Only apply facts specifically about "${safeQuery}" — not other features of the same product
@@ -433,7 +432,7 @@ Return ONLY valid JSON. No markdown. No backticks.`;
 
         const synthRaw = await Promise.race([
           callLLM(SYNTHESIZE_SYSTEM, synthesizeMsg, false),
-          new Promise<string>((_, rej) => setTimeout(() => rej(new Error("Synthesis timeout after 45s")), 45000)),
+          new Promise<string>((_, rej) => setTimeout(() => rej(new Error("Synthesis timeout after 30s")), 30000)),
         ]) as string;
         if (!synthRaw) { send("error", { message: "Empty response." }); ctrl.close(); return; }
 
