@@ -350,7 +350,7 @@ export async function POST(req: NextRequest) {
         // ── Phase 2: Exa semantic search (parallel, fast) ────────────────────
         send("status", { step: 2, message: `Found ${google.urls.length} sources. Running semantic search…` });
         const [fullContent, exaResults] = await Promise.all([
-          Promise.resolve([]), // Tavily extract skipped for speed
+          Promise.resolve([] as { title: string; url: string; content: string }[]), // Tavily skipped for speed
           searchExa(safeQuery, exaKey),
         ]);
 
