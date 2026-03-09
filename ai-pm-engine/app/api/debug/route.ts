@@ -62,5 +62,31 @@ export async function GET(_req: NextRequest) {
     } catch (e) { results.tavily = { error: String(e) }; }
   }
 
+  // Test Anthropic API directly
+  const anthropicKey = process.env.ANTHROPIC_API_KEY ?? "";
+  if (anthropicKey) {
+    try {
+      const t0 = Date.now();
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 50,
+          messages: [{ role: "user", content: "Reply with just: OK" }]
+        }),
+      });
+      const d = await r.json();
+      results.anthropic = {
+        status: r.status,
+        latencyMs: Date.now() - t0,
+        response: d.content?.[0]?.text ?? d,
+        error: d.error ?? null,
+      };
+    } catch (e) { results.anthropic = { error: String(e) }; }
+  } else {
+    results.anthropic = "MISSING KEY";
+  }
+
   return new Response(JSON.stringify(results, null, 2), { headers: { "Content-Type": "application/json" } });
 }
