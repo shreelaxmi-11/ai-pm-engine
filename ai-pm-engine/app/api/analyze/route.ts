@@ -1,464 +1,219 @@
 import { NextRequest } from "next/server";
-export const runtime = "nodejs";
-export const maxDuration = 120;
+export const runtime = "edge";
 
-// Fetch with timeout
-async function fetchWithTimeout(url: string, opts: RequestInit, ms = 8000): Promise<Response> {
-  const ctrl = new AbortController();
-  const id = setTimeout(() => ctrl.abort(), ms);
-  try {
-    return await fetch(url, { ...opts, signal: ctrl.signal });
-  } finally {
-    clearTimeout(id);
-  }
-}
+const SYSTEM = `You are a senior AI systems analyst. Your job is to extract accurate, specific technical facts about AI product features from live search results.
 
-// ── Step 1: Get top URLs from Google via Serper ───────────────────────────────
-async function getGoogleUrls(query: string, key: string): Promise<{
-  answerBoxes: { title: string; url: string; content: string }[];
-  knowledgeGraph: string;
-  urls: string[];
-  organicSnippets: { title: string; url: string; snippet: string }[];
-}> {
-  const answerBoxes: { title: string; url: string; content: string }[] = [];
-  let knowledgeGraph = "";
-  const urlSet = new Set<string>();
-  const organicSnippets: { title: string; url: string; snippet: string }[] = [];
+EXTRACTION RULES - read every source carefully:
+1. PRIORITIZE live sources above all else. If a source says X, use X and mark "confirmed".
+2. For context window: never say "N/A". Describe what the model actually processes - tokens for LLMs, document-level for writing tools, audio duration for speech, image/scene for vision models.
+3. For latency: extract any specific ms/s numbers mentioned. If only qualitative ("fast", "real-time"), say that and mark "inferred".
+4. For cost: extract exact pricing from sources. If not found, use your training knowledge and mark "inferred".
+5. For hardware/framework: extract from engineering blogs, job listings, or official docs in the sources.
+6. Confidence labels: "confirmed" = explicitly stated in a source. "inferred" = reasoned from related evidence. "unknown" = genuinely not findable.
+7. NEVER say "Not publicly disclosed" or "N/A" without a good reason - dig into the sources first.
+8. pmInsights: must contain specific numbers, real decisions, and concrete trade-offs. No generic advice.
+9. infraDiagram: use REAL component names from the sources. 4-5 layers minimum.
+10. Return ONLY raw JSON starting with { ending with }.`
 
-  if (!key) return { answerBoxes, knowledgeGraph, urls: [], organicSnippets };
-
-  const queries = [
-    `${query} AI feature model architecture technical specs`,
-  ]; // 1 query for speed
-
-  await Promise.all(queries.map(async (q) => {
-    try {
-      const r = await fetchWithTimeout("https://google.serper.dev/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-API-KEY": key },
-        body: JSON.stringify({ q, num: 5, gl: "us", hl: "en" }),
-      });
-      if (!r.ok) return;
-      const d = await r.json();
-
-      // Collect answer boxes — immediate high-quality facts
-      if (d.answerBox?.answer)
-        answerBoxes.push({ title: d.answerBox.title ?? q, url: d.answerBox.link ?? "", content: d.answerBox.answer });
-      if (d.answerBox?.snippet)
-        answerBoxes.push({ title: d.answerBox.title ?? q, url: d.answerBox.link ?? "", content: d.answerBox.snippet });
-      if (d.answerBox?.snippetHighlighted?.length)
-        answerBoxes.push({ title: q, url: d.answerBox.link ?? "", content: d.answerBox.snippetHighlighted.join(" ") });
-
-      // Knowledge graph — structured facts
-      if (d.knowledgeGraph) {
-        const kg = d.knowledgeGraph;
-        const attrs = kg.attributes ? Object.entries(kg.attributes).map(([k, v]) => `${k}: ${v}`).join("\n") : "";
-        knowledgeGraph += `${kg.title ?? ""}: ${kg.description ?? ""}\n${attrs}\n`;
-      }
-
-      // People Also Ask — extra context
-      for (const p of (d.peopleAlsoAsk ?? []).slice(0, 3))
-        if (p.answer) answerBoxes.push({ title: p.question, url: p.link ?? "", content: p.answer });
-
-      // Collect top organic URLs to fetch full content
-      for (const x of (d.organic ?? []).slice(0, 6)) {
-        if (x.link && !urlSet.has(x.link)) {
-          urlSet.add(x.link);
-          organicSnippets.push({ title: x.title ?? "", url: x.link, snippet: x.snippet ?? "" });
-        }
-      }
-    } catch { /**/ }
-  }));
-
-  return { answerBoxes, knowledgeGraph, urls: Array.from(urlSet), organicSnippets };
-}
-
-// ── Step 2: Extract full page content from exact URLs via Tavily Extract ────
-async function fetchFullContent(
-  urls: string[],
-  query: string,
-  key: string
-): Promise<{ title: string; url: string; content: string }[]> {
-  if (!key || !urls.length) return [];
-  const results: { title: string; url: string; content: string }[] = [];
-
-  const PRIORITY_DOMAINS = [
-    "openai.com", "anthropic.com", "ai.google", "blog.google", "deepmind.google",
-    "microsoft.com", "github.blog", "notion.so", "notion.com",
-    "news.samsung.com", "samsung.com", "research.samsung.com",
-    "apple.com", "machinelearning.apple.com",
-    "netflixtechblog.com", "research.netflix.com",
-    "engineering.fb.com", "ai.meta.com",
-    "aws.amazon.com", "developer.amazon.com",
-    "engineering.atspotify.com", "newsroom.spotify.com",
-    "eng.uber.com", "engineering.linkedin.com",
-    "x.ai", "tesla.com", "developer.nvidia.com",
-    "grammarly.com", "perplexity.ai", "blog.perplexity.ai",
-  ];
-
-  const priorityUrls = urls.filter(u => PRIORITY_DOMAINS.some(d => u.includes(d)));
-  const otherUrls = urls.filter(u => !priorityUrls.includes(u));
-  const toExtract = [...priorityUrls.slice(0, 3), ...otherUrls.slice(0, 2)]; // max 5 URLs for speed
-
-  // Tavily /extract — returns full clean text of each exact URL
-  try {
-    const r = await fetchWithTimeout("https://api.tavily.com/extract", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: key, urls: toExtract }),
-    });
-    if (r.ok) {
-      const d = await r.json();
-      for (const x of (d.results ?? [])) {
-        if (x.url && x.raw_content) {
-          results.push({
-            title: x.url,
-            url: x.url,
-            content: (x.raw_content as string).slice(0, 3000),
-          });
-        }
-      }
-    }
-  } catch { /**/ }
-
-  // Fallback: broad Tavily search if extract didn't get enough
-  if (results.length < 3) {
-    try {
-      const r = await fetch("https://api.tavily.com/search", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          api_key: key,
-          query: `${query} model architecture hardware pricing technical`,
-          search_depth: "advanced", max_results: 5,
-          exclude_domains: ["reddit.com", "quora.com", "pinterest.com", "tiktok.com"],
-        }),
-      });
-      if (r.ok) {
-        const d = await r.json();
-        for (const x of (d.results ?? []))
-          if (!results.find(e => e.url === x.url))
-            results.push({ title: x.title ?? "", url: x.url ?? "", content: (x.content ?? "").slice(0, 4000) });
-      }
-    } catch { /**/ }
-  }
-
-  return results;
-}
-
-// ── Step 3: Exa semantic search ───────────────────────────────────────────────
-async function searchExa(query: string, key: string): Promise<{ title: string; url: string; content: string }[]> {
-  if (!key) return [];
-  try {
-    const r = await fetch("https://api.exa.ai/search", {
-      method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key },
-      body: JSON.stringify({
-        query: `${query} technical specifications model hardware pricing architecture`,
-        numResults: 3, useAutoprompt: true,
-        contents: { text: { maxCharacters: 800 } }
-      }),
-    });
-    if (!r.ok) return [];
-    const d = await r.json();
-    return (d.results ?? []).map((x: { title?: string; url?: string; text?: string }) => ({
-      title: x.title ?? "", url: x.url ?? "", content: x.text ?? ""
-    }));
-  } catch { return []; }
-}
-
-// ── Extract: literal facts from sources only ─────────────────────────────────
-const EXTRACT_SYSTEM = `Extract ONLY facts explicitly stated in these sources. Be literal. No inference. Return null for anything not directly stated.
-IMPORTANT: If sources contradict each other, note the contradiction in keyFacts. Do not pick the wrong one.
-Return ONLY this JSON:
-{
-  "modelName": "exact model name if stated",
-  "provider": "AI provider company if stated",
-  "contextWindow": "context size if stated",
-  "hardware": "specific chip/GPU/NPU if stated",
-  "frameworks": "ML frameworks if stated",
-  "latency": "latency numbers if stated",
-  "cost": "exact pricing if stated",
-  "privacy": "privacy policy if stated",
-  "deployment": "cloud/on-device/hybrid if stated — be precise about what runs where",
-  "adoptionSignal": "user count or growth metric if stated",
-  "qualityMetric": "accuracy or benchmark if stated",
-  "keyFacts": ["important facts quoted directly — up to 15 quotes, include any contradictions found"]
-}`;
-
-// ── Synthesize: full expert analysis ─────────────────────────────────────────
-const SYNTHESIZE_SYSTEM = `You are a world-class AI product analyst. Founders and senior PMs will read this. Be accurate, specific, and expert.
-
-══ YOUR JOB ══
-You have been given full text from real web pages about this product — engineering blogs, official docs, press releases, technical reports.
-READ THEM CAREFULLY. Your job is to extract every fact from these pages and build a complete, accurate analysis.
-
-══ CONFIDENCE RULES ══
-"confirmed" → explicitly stated in the provided source text
-"inferred"  → strongly implied by the source text, or cross-referenced across multiple sources
-"unknown"   → genuinely not mentioned anywhere in sources AND you have no reliable basis
-
-IMPORTANT: You are Claude, trained on data up to early 2026. You have deep knowledge of the AI industry.
-If the sources confirm a fact, mark it "confirmed".
-If the sources don't mention something but you know it from your training (e.g. a well-known product's hardware), mark it "inferred" — do NOT mark it "unknown".
-Reserve "unknown" only for truly obscure or undisclosed information with zero basis.
-
-══ HOW TO READ THE SOURCES ══
-- Official engineering blogs (netflixtechblog.com, engineering.fb.com, openai.com, anthropic.com, github.blog, ai.google) are highest trust — treat as ground truth
-- Official product pages and docs are high trust
-- News articles and reviews are medium trust — corroborate with other sources if possible
-- Extract exact model names, hardware names, latency numbers, pricing, context windows from the text
-- If a source says "we use H100s" that is "confirmed" hardware
-- If a source says "powered by GPT-4" that is "confirmed" model name
-
-══ PM INSIGHTS — MANDATORY FORMAT ══
-Each insight MUST: reference a SPECIFIC fact from the sources + give a specific number + describe a decision the PM must own.
-
-BANNED — these will be rejected:
-✗ "Monitor user feedback to improve quality"
-✗ "Consider the competitive landscape"
-✗ "Explore partnerships"
-✗ "Ensure compliance with regulations"
-✗ Any insight without a specific number from the actual product
-
-REQUIRED — every insight references something real:
-✓ "Notion uses prompt caching with Claude — confirmed 85% latency reduction and 90% cost savings per call. PM must set cache hit rate target >70%. Any prompt redesign that drops below this threshold reverts — the feature economics break below it."
-✓ "Netflix recommendation CTR drops ~30% when p99 latency exceeds 100ms (confirmed from Netflix Tech Blog). PM must gate every model update behind offline eval that proves <100ms p99 before any A/B test."
-✓ "Samsung Transcript Assist runs fully on-device on Exynos 2400 NPU (34.4 TOPS, confirmed). PM must define WER budget per language: English <5%, Korean <8%. Any OTA regression past this is blocked."
-✓ "GitHub Copilot acceptance rate benchmarks at 30-35% (confirmed from GitHub blog). PM must track acceptance rate per language — if Python drops below 30%, the fine-tuning pipeline needs retraining on recent Python corpus."
-
-══ INFRA DIAGRAM ══
-Every component name must reference the actual product:
-✓ "Notion Prompt Cache Layer (Claude 3.7)", "Netflix Two-Tower Retrieval Model", "Exynos 2400 NPU ASR Engine"
-✗ "AI Model", "Backend Server", "Data Preprocessor", "Inference Engine"
-
-Return ONLY raw JSON. No markdown. No backticks. No text outside JSON.
-
+JSON structure:
 {
   "featureName": "string",
   "company": "string",
   "category": "Summarization|Conversational AI|Code Generation|Image Generation|Search|Writing Assistant|Voice|Vision|Recommendation|Other",
   "emoji": "single emoji",
-  "tagline": "max 12 words — specific to this product",
-  "userProblem": "2-3 sentences: concrete before/after, specific friction removed",
-  "summary": "3-4 sentences: technical how it works, what makes it architecturally different, cite specific facts from sources",
+  "tagline": "max 12 words",
+  "userProblem": "2-3 sentences, concrete before/after",
+  "summary": "3-4 sentences, technical how it works",
   "overallConfidence": "high|medium|low",
   "model": {
-    "name": { "value": "string", "confidence": "confirmed|inferred|unknown" },
+    "name": { "value": "exact model e.g. GPT-4o, Whisper v3, ViT-L/14", "confidence": "confirmed|inferred|unknown" },
     "provider": { "value": "string", "confidence": "confirmed|inferred|unknown" },
-    "type": { "value": "string", "confidence": "confirmed|inferred|unknown" },
-    "contextWindow": { "value": "string", "confidence": "confirmed|inferred|unknown" },
-    "finetuned": { "value": "string", "confidence": "confirmed|inferred|unknown" }
+    "type": { "value": "e.g. Multimodal LLM, Vision Transformer, Speech-to-Speech", "confidence": "confirmed|inferred|unknown" },
+    "contextWindow": { "value": "e.g. 128K tokens, N/A for vision", "confidence": "confirmed|inferred|unknown" },
+    "finetuned": { "value": "yes - fine-tuned for X | no | unknown", "confidence": "confirmed|inferred|unknown" }
   },
   "performance": {
-    "latency": { "value": "string", "confidence": "confirmed|inferred|unknown" },
-    "quality": { "value": "string", "confidence": "confirmed|inferred|unknown" },
-    "cost": { "value": "string", "confidence": "confirmed|inferred|unknown" },
-    "privacy": { "value": "string", "confidence": "confirmed|inferred|unknown" },
-    "reliability": { "value": "string", "confidence": "confirmed|inferred|unknown" }
+    "latency": { "value": "specific numbers e.g. <300ms first chunk, ~200ms on-device", "confidence": "confirmed|inferred|unknown" },
+    "quality": { "value": "specific metric e.g. WER 2.7%, top-1 87% ImageNet, or qualitative with data", "confidence": "confirmed|inferred|unknown" },
+    "cost": { "value": "real pricing e.g. $20/mo Plus, $10/mo Copilot, free+$20/mo Pro", "confidence": "confirmed|inferred|unknown" },
+    "privacy": { "value": "specific policy e.g. not stored after session, on-device = no data sent", "confidence": "confirmed|inferred|unknown" },
+    "reliability": { "value": "e.g. 99.9%+ API target, no consumer SLA", "confidence": "confirmed|inferred|unknown" }
   },
   "stack": {
-    "hardware": [{ "value": "string", "confidence": "confirmed|inferred|unknown" }],
-    "frameworks": [{ "value": "string", "confidence": "confirmed|inferred|unknown" }],
-    "apis": [{ "value": "string", "confidence": "confirmed|inferred|unknown" }],
-    "vectorDB": { "value": "string", "confidence": "confirmed|inferred|unknown" },
-    "orchestration": { "value": "string", "confidence": "confirmed|inferred|unknown" },
-    "deployment": { "value": "string", "confidence": "confirmed|inferred|unknown" }
+    "hardware": [{ "value": "e.g. NVIDIA H100 SXM5 on Azure, Google TPU v4, Exynos 2400 NPU", "confidence": "confirmed|inferred|unknown" }],
+    "frameworks": [{ "value": "e.g. PyTorch, JAX, TensorFlow Lite, TensorRT", "confidence": "confirmed|inferred|unknown" }],
+    "apis": [{ "value": "e.g. Realtime API WebSocket, REST+SSE, on-device SDK", "confidence": "confirmed|inferred|unknown" }],
+    "vectorDB": { "value": "e.g. not applicable (generative feature) | Pinecone | pgvector", "confidence": "confirmed|inferred|unknown" },
+    "orchestration": { "value": "e.g. custom pipeline, multi-model router", "confidence": "confirmed|inferred|unknown" },
+    "deployment": { "value": "cloud-only | on-device+cloud hybrid - specify which parts run where", "confidence": "confirmed|inferred|unknown" }
   },
-  "optimizations": ["string — each must be a specific technique from the sources"],
+  "optimizations": ["specific techniques e.g. INT8 quantization, KV cache, WebSocket streaming, speculative decoding"],
   "tradeoffs": [
-    { "label": "string", "description": "2-3 sentences: real tension confirmed by sources, what was gained, what was lost, why this decision was made", "dimension": "quality-latency|privacy-accuracy|cost-scale|ondevice-cloud|general" },
-    { "label": "string", "description": "string", "dimension": "string" },
-    { "label": "string", "description": "string", "dimension": "string" }
+    { "label": "label", "description": "2-3 sentences: real tension, what was gained/lost, why this call", "dimension": "quality-latency|privacy-accuracy|cost-scale|ondevice-cloud|general" },
+    { "label": "label", "description": "...", "dimension": "..." },
+    { "label": "label", "description": "...", "dimension": "..." }
   ],
   "productImpact": {
-    "adoptionSignal": "string — specific number if found in sources",
-    "retentionImpact": "string",
-    "churnImpact": "string",
-    "userSegment": "string",
-    "successMetrics": ["string", "string", "string"]
+    "adoptionSignal": "specific evidence e.g. 100M users, #1 App Store, 1.5M subscribers",
+    "retentionImpact": "what drives users back specifically because of this feature",
+    "churnImpact": "what happens when this feature degrades",
+    "userSegment": "specific segment e.g. developers 50+ completions/day",
+    "successMetrics": ["specific metric", "second metric", "third metric"]
   },
-  "pmInsights": ["string", "string", "string", "string", "string"],
+  "pmInsights": [
+    "insight with specific numbers and real PM decision",
+    "failure mode or error budget this PM must define",
+    "trade-off made and whether it was right - with reasoning",
+    "what a competitor doing this differently reveals",
+    "what this feature must do in next 12 months"
+  ],
   "infraDiagram": [
-    { "layer": "Input Layer", "description": "How user input enters", "components": [
-      { "name": "product-specific name", "detail": "specific technical detail from sources", "children": [{ "name": "string", "detail": "string" }] }
+    { "layer": "Input Layer", "description": "How user input enters the system", "components": [
+      { "name": "real component name", "detail": "specific detail with numbers", "children": [{ "name": "sub-component", "detail": "detail" }] }
     ]},
-    { "layer": "Processing Layer", "description": "Pre-processing and routing", "components": [{ "name": "string", "detail": "string" }]},
-    { "layer": "Model Layer", "description": "Core AI inference", "components": [{ "name": "string", "detail": "string" }]},
-    { "layer": "Output Layer", "description": "Response delivery", "components": [{ "name": "string", "detail": "string" }]},
-    { "layer": "Observability Layer", "description": "Monitoring and quality", "components": [{ "name": "string", "detail": "string" }]}
+    { "layer": "Processing Layer", "description": "Pre-processing and routing", "components": [] },
+    { "layer": "Model Layer", "description": "Core AI inference", "components": [] },
+    { "layer": "Output Layer", "description": "Response delivery", "components": [] },
+    { "layer": "Observability Layer", "description": "Monitoring and quality", "components": [] }
   ],
   "sources": [{ "title": "string", "url": "string", "type": "official|article|analysis" }]
 }`;
 
-// ── Module-level sanitize — available everywhere including SSE send ──────────
-function sanitizeStr(s: string): string {
-  if (!s) return "";
-  let result = "";
-  for (let i = 0; i < s.length; i++) {
-    const code = s.charCodeAt(i);
-    if (code >= 0xD800 && code <= 0xDBFF) {
-      const next = s.charCodeAt(i + 1);
-      if (next >= 0xDC00 && next <= 0xDFFF) { result += s[i] + s[i + 1]; i++; }
-    } else if (code >= 0xDC00 && code <= 0xDFFF) {
-      // lone low surrogate — skip
-    } else if (code === 0 || (code >= 0x0001 && code <= 0x0008) ||
-               code === 0x000B || code === 0x000C ||
-               (code >= 0x000E && code <= 0x001F)) {
-      // control chars — skip
-    } else {
-      result += s[i];
-    }
-  }
-  return result.trim();
-}
-function sanitizeDeep(val: unknown): unknown {
-  if (typeof val === "string") return sanitizeStr(val);
-  if (Array.isArray(val)) return val.map(sanitizeDeep);
-  if (val && typeof val === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(val as Record<string, unknown>)) out[k] = sanitizeDeep(v);
-    return out;
-  }
-  return val;
+async function searchTavily(query: string, key: string) {
+  const results: { title: string; url: string; content: string }[] = [];
+  // Extract core product name for targeted searches
+  const q = query.trim();
+  await Promise.all([
+    `${q} AI model architecture how it works engineering blog`,
+    `${q} machine learning infrastructure GPU latency benchmarks`,
+    `${q} product specs pricing context window performance`,
+    `${q} site:engineering.fb.com OR site:research.google OR site:openai.com OR site:blog.google OR site:samsung.com technical`,
+    `"${q}" system design on-device cloud inference pipeline`,
+    `${q} product manager PM metrics adoption trade-offs`,
+  ].map(async (sq) => {
+    try {
+      const r = await fetch("https://api.tavily.com/search", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: key,
+          query: sq,
+          search_depth: "advanced",
+          max_results: 4,
+          include_domains: [],
+          exclude_domains: ["pinterest.com","reddit.com","quora.com"],
+        }),
+      });
+      if (!r.ok) return;
+      const d = await r.json();
+      for (const x of (d.results ?? []))
+        if (!results.find(e => e.url === x.url))
+          results.push({ title: x.title ?? "", url: x.url ?? "", content: (x.content ?? "").slice(0, 1500) });
+    } catch { /* ignore */ }
+  }));
+  return results.slice(0, 12);
 }
 
-// ── Main handler ──────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const tavilyKey    = process.env.TAVILY_API_KEY ?? "";
   const anthropicKey = process.env.ANTHROPIC_API_KEY ?? "";
-  const serperKey    = process.env.SERPER_API_KEY ?? "";
-  const exaKey       = process.env.EXA_API_KEY ?? "";
-
-  if (!anthropicKey)
-    return new Response(JSON.stringify({ error: "Missing ANTHROPIC_API_KEY." }), { status: 500 });
-  if (!tavilyKey)
-    return new Response(JSON.stringify({ error: "Missing TAVILY_API_KEY." }), { status: 500 });
+  if (!tavilyKey)   return new Response(JSON.stringify({ error: "Missing TAVILY_API_KEY." }), { status: 500 });
+  if (!anthropicKey) return new Response(JSON.stringify({ error: "Missing ANTHROPIC_API_KEY." }), { status: 500 });
 
   const { query } = await req.json();
   if (!query?.trim()) return new Response(JSON.stringify({ error: "Query required" }), { status: 400 });
-  const safeQuery = query.trim().replace(/[\uD800-\uDFFF]/g, "").replace(/[\u0000-\u001F]/g, " ");
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(ctrl) {
       const send = (event: string, data: unknown) =>
-        ctrl.enqueue(encoder.encode(`data: ${JSON.stringify({ event, data: sanitizeDeep(data) })}\n\n`));
+        ctrl.enqueue(encoder.encode(`data: ${JSON.stringify({ event, data })}\n\n`));
       try {
-        // ── Phase 1: Google → get URLs + answer boxes ─────────────────────────
-        send("status", { step: 1, message: "Searching Google for sources…" });
-        const google = await getGoogleUrls(safeQuery, serperKey);
+        send("status", { step: 1, message: "Searching public sources…" });
+        const sources = await searchTavily(query.trim(), tavilyKey);
+        if (!sources.length) { send("error", { message: "No sources found. Check TAVILY_API_KEY in Vercel." }); ctrl.close(); return; }
 
-        // ── Phase 2: Exa semantic search (parallel, fast) ────────────────────
-        send("status", { step: 2, message: `Found ${google.urls.length} sources. Running semantic search…` });
-        const [fullContent, exaResults] = await Promise.all([
-          Promise.resolve([] as { title: string; url: string; content: string }[]), // Tavily skipped for speed
-          searchExa(safeQuery, exaKey),
-        ]);
+        send("status", { step: 2, message: `Found ${sources.length} sources. Analyzing…` });
+        const sourcesText = sources.map((s, i) => `[${i+1}] ${s.title}\nURL: ${s.url}\n${s.content}`).join("\n\n---\n\n");
 
-        // Merge all sources
-        const seen = new Set<string>();
-        const allSources: { title: string; url: string; content: string; type: string }[] = [];
+        const userMsg = `Analyze: "${query.trim()}"
 
-        const addSource = (title: string, url: string, content: string, type: string) => {
-          const k = url || title;
-          if (k && !seen.has(k) && content.length > 10) {
-            seen.add(k);
-            allSources.push({ title, url, content, type });
+YOUR PRIMARY JOB: Extract every specific fact you can find in the sources below. Read each source carefully.
+
+LIVE SOURCES (${sources.length} retrieved - these are your ground truth):
+---
+${sourcesText}
+---
+
+EXTRACTION CHECKLIST - find each of these in the sources:
+- Model name: look for exact model names, version numbers, architecture names
+- Context window: look for token counts, document size limits, audio duration, image resolution limits
+- Latency: look for ms, seconds, "real-time", benchmarks, SLA numbers
+- Cost: look for pricing pages, subscription tiers, per-request costs
+- Hardware: look for GPU/TPU/NPU mentions, chip names, cloud provider names
+- Framework: look for PyTorch, JAX, TensorFlow, ONNX, TensorRT mentions
+- Deployment: look for "on-device", "cloud", "hybrid", "edge" mentions
+- Privacy: look for data retention policies, "not stored", "on-device processing"
+
+FOR EACH FIELD:
+- If found in sources: use exact value, mark "confirmed"
+- If reasonably inferable from sources: mark "inferred"  
+- If truly not anywhere: mark "unknown" (avoid this)
+- NEVER use "N/A" - always describe what the feature actually processes
+
+Return ONLY raw JSON, no markdown, no backticks.`;
+
+        send("status", { step: 3, message: "Extracting fields and PM signals…" });
+
+        // Sanitize before sending to Claude
+        const sanitize = (s: string) => {
+          if (!s) return "";
+          let r = "";
+          for (let i = 0; i < s.length; i++) {
+            const c = s.charCodeAt(i);
+            if (c >= 0xD800 && c <= 0xDBFF) {
+              const n = s.charCodeAt(i+1);
+              if (n >= 0xDC00 && n <= 0xDFFF) { r += s[i] + s[i+1]; i++; }
+            } else if (c >= 0xDC00 && c <= 0xDFFF) {
+              // skip lone surrogate
+            } else if (c < 0x0009 || (c > 0x000D && c < 0x0020)) {
+              // skip control chars
+            } else { r += s[i]; }
           }
+          return r;
         };
 
-        // Answer boxes first — highest trust
-        for (const s of google.answerBoxes) addSource(`[ANSWER BOX] ${s.title}`, s.url, s.content, "official");
-        // Full page content — most valuable
-        for (const s of fullContent) addSource(s.title, s.url, s.content, "article");
-        // Exa semantic results
-        for (const s of exaResults) addSource(s.title, s.url, s.content, "article");
-        // Organic snippets as fallback
-        for (const s of google.organicSnippets) addSource(s.title, s.url, s.snippet, "article");
+        const llmRes = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 4000,
+            system: sanitize(SYSTEM),
+            messages: [{ role: "user", content: sanitize(userMsg) }],
+          }),
+        });
 
-        send("status", { step: 3, message: `Analyzing ${allSources.length} sources…` });
+        if (!llmRes.ok) { send("error", { message: `Anthropic error (${llmRes.status}): ${(await llmRes.text()).slice(0,200)}` }); ctrl.close(); return; }
 
-        // Aliases to module-level sanitizers
-        const sanitize = sanitizeStr;
-        const sanitizeJson = (obj: unknown): string => sanitizeStr(JSON.stringify(obj, null, 2));
-
-        // ── Phase 3: Build context for Sonnet ────────────────────────────────────
-        const kgSection = google.knowledgeGraph ? `\nKNOWLEDGE GRAPH:\n${sanitize(google.knowledgeGraph)}\n` : "";
-
-        // ── Helper: call Claude ───────────────────────────────────────────────
-        const callLLM = async (systemRaw: string, userRaw: string, fast: boolean): Promise<string> => {
-          const system = sanitizeStr(systemRaw);
-          const user = sanitizeStr(userRaw);
-          const r = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-api-key": anthropicKey,
-              "anthropic-version": "2023-06-01",
-            },
-            body: JSON.stringify({
-              model: "claude-haiku-4-5-20251001", // Haiku for speed — 100+ tok/s
-              max_tokens: 2000, // single value for Haiku
-              system,
-              messages: [{ role: "user", content: user }],
-            }),
-          });
-          if (!r.ok) throw new Error(`Anthropic error (${r.status}): ${await r.text()}`);
-          const d = await r.json();
-          return d.content?.[0]?.text ?? "";
-        };
-
-        // Phase 3 skipped — Sonnet reads sources directly (faster, same quality)
-        const extracted: Record<string, unknown> = {};
-
-        // ── Phase 4: Synthesize full analysis ────────────────────────────────
-        send("status", { step: 4, message: "Synthesizing with Claude Haiku…" });
-
-        const synthesizeMsg = `Analyze THIS SPECIFIC FEATURE: "${safeQuery}"
-
-CONFIRMED FACTS (extracted from live sources — mark these "confirmed"):
-${sanitizeJson(extracted)}
-
-${google.knowledgeGraph ? `GOOGLE KNOWLEDGE GRAPH:\n${sanitize(google.knowledgeGraph)}\n` : ""}
-TOP SOURCES (full content):
-${allSources.slice(0, 4).map((s, i) => `[${i+1}] ${sanitize(s.title)}\nURL: ${s.url}\n${sanitize(s.content).slice(0, 600)}`).join("\n\n---\n\n")}
-
-CRITICAL RULES:
-1. Only apply facts specifically about "${safeQuery}" — not other features of the same product
-2. Use your training knowledge to fill gaps — mark "inferred" with real specific numbers
-3. "unknown" only when you have absolutely zero basis — should be rare
-4. Every pmInsight MUST contain a specific number and a real PM decision to own
-5. Name every infra component after actual product features (e.g. "Exynos 2400 NPU ASR Engine" not "AI Model")
-Return ONLY valid JSON. No markdown. No backticks.`;
-
-        const synthRaw = await Promise.race([
-          callLLM(SYNTHESIZE_SYSTEM, synthesizeMsg, false),
-          new Promise<string>((_, rej) => setTimeout(() => rej(new Error("Synthesis timeout after 20s")), 20000)),
-        ]) as string;
-        if (!synthRaw) { send("error", { message: "Empty response." }); ctrl.close(); return; }
+        send("status", { step: 4, message: "Building dashboard…" });
+        const llmData = await llmRes.json();
+        const raw = llmData.content?.[0]?.text ?? "";
+        if (!raw) { send("error", { message: "Empty response. Try again." }); ctrl.close(); return; }
 
         let result;
-        try {
-          const clean = synthRaw.replace(/```json|```/g, "").trim();
-          const f = clean.indexOf("{"), l = clean.lastIndexOf("}");
-          result = JSON.parse(f >= 0 ? clean.slice(f, l + 1) : clean);
-        }
+        try { result = JSON.parse(raw); }
         catch {
-          const f = synthRaw.indexOf("{"), l = synthRaw.lastIndexOf("}");
-          if (f === -1 || l === -1) { send("error", { message: "Parse error." }); ctrl.close(); return; }
-          try { result = JSON.parse(synthRaw.slice(f, l + 1)); }
-          catch { send("error", { message: "Parse error." }); ctrl.close(); return; }
+          const f = raw.indexOf("{"), l = raw.lastIndexOf("}");
+          if (f === -1 || l === -1) { send("error", { message: "Parse error. Try again." }); ctrl.close(); return; }
+          try { result = JSON.parse(raw.slice(f, l + 1)); }
+          catch { send("error", { message: "Parse error. Try again." }); ctrl.close(); return; }
         }
 
-        result.id = safeQuery.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, "-");
+        result.id = query.trim().toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, "-");
         result.generatedAt = new Date().toISOString();
-
-        // Attach all sources
-        const seenUrls = new Set(Array.from((result.sources ?? []).map((s: { url: string }) => s.url)));
-        for (const s of allSources)
-          if (s.url && !seenUrls.has(s.url)) {
-            result.sources = [...(result.sources ?? []), { title: s.title, url: s.url, type: s.type }];
-            seenUrls.add(s.url);
-          }
+        const seen = new Set((result.sources ?? []).map((s: { url: string }) => s.url));
+        for (const s of sources)
+          if (!seen.has(s.url)) { result.sources = [...(result.sources ?? []), { title: s.title, url: s.url, type: "article" }]; seen.add(s.url); }
 
         send("complete", result);
       } catch (e) {
